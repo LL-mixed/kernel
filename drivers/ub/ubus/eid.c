@@ -37,6 +37,11 @@ int ub_eid_alloc(struct ub_entity *uent)
 	u32 eid = 0;
 	int ret;
 
+	pr_info("ub_eid_alloc enter guid=%pUb entity_idx=%u type=%#x cluster=%d eid=%#x user_eid=%#x\n",
+		uent ? uent->guid.dw : NULL, uent ? uent->entity_idx : 0,
+		uent ? uent_type(uent) : 0, uent ? !!(is_ibus_controller(uent) && uent->ubc->cluster) : 0,
+		uent ? uent->eid : 0, uent ? uent->user_eid : 0);
+
 	if (is_p_device(uent))
 		return 0;
 
@@ -47,23 +52,41 @@ int ub_eid_alloc(struct ub_entity *uent)
 
 	if (is_ibus_controller(uent) && uent->ubc->cluster) {
 		dev = &uent->ubc->dev;
-		ret = ub_cfg_read_dword(uent, UB_EID_0, &eid);
-		if (ret) {
-			dev_err(dev, "query cluster ubc, ret=%d\n", ret);
-			return ret;
+		if (uent->ubc->cluster_bi && uent->ubc->cluster_bi->info.eid) {
+			eid = uent->ubc->cluster_bi->info.eid;
+			pr_info("ub_eid_alloc use cluster_bi eid=%#x\n", eid);
+			dev_info(dev, "use cluster_bi eid=%#x\n", eid);
+		} else if (uent->user_eid) {
+			eid = uent->user_eid;
+			pr_info("ub_eid_alloc use user_eid=%#x\n", eid);
+			dev_info(dev, "use user_eid=%#x\n", eid);
+		} else {
+			pr_info("ub_eid_alloc fallback UB_EID_0 read start\n");
+			ret = ub_cfg_read_dword(uent, UB_EID_0, &eid);
+			if (ret) {
+				pr_info("ub_eid_alloc fallback UB_EID_0 read failed ret=%d\n", ret);
+				dev_err(dev, "query cluster ubc, ret=%d\n", ret);
+				return ret;
+			}
+
+			eid &= UB_COMPACT_EID_MASK;
+			pr_info("ub_eid_alloc fallback UB_EID_0 read done eid=%#x\n", eid);
+			if (eid)
+				dev_info(dev, "update cluster ubc eid, eid=%#x\n", eid);
 		}
 
-		eid &= UB_COMPACT_EID_MASK;
-		if (eid)
-			dev_info(dev, "update cluster ubc eid, eid=%#x\n", eid);
-
 		uent->eid = eid;
+		pr_info("ub_eid_alloc exit cluster eid=%#x\n", uent->eid);
 		return 0;
 	}
 
 	ret = ub_eid_request(&uent->guid.id, &eid);
-	if (!ret)
+	if (!ret) {
 		uent->eid = eid;
+		pr_info("ub_eid_alloc exit local eid=%#x\n", uent->eid);
+	} else {
+		pr_info("ub_eid_alloc local request failed ret=%d\n", ret);
+	}
 
 	return ret;
 }

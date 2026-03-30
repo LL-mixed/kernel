@@ -656,6 +656,13 @@ ub_static_cluster_instance_create(struct ub_bus_controller *ubc, u32 *guid,
 {
 	struct ub_bus_instance *bi;
 	int ret;
+	char b_str[SZ_64];
+
+	(void)snprintf(b_str, SZ_64, "%#llx %llx", *((u64 *)&guid[SZ_2]),
+		       *((u64 *)&guid[0]));
+	dev_info(&ubc->dev,
+		 "static_cluster_instance_create start guid=%s eid=%#x upi=%#x\n",
+		 b_str, eid, upi);
 
 	bi = ub_alloc_bus_instance();
 	if (!bi)
@@ -670,6 +677,8 @@ ub_static_cluster_instance_create(struct ub_bus_controller *ubc, u32 *guid,
 	ret = ub_register_bus_instance(bi);
 	if (ret)
 		goto put;
+	dev_info(&ubc->dev, "static_cluster_instance_create register done guid=%s\n",
+		 b_str);
 
 	ret = ummu_core_add_eid((guid_t *)&guid_null, bi->info.eid,
 				EID_NONE);
@@ -679,6 +688,7 @@ ub_static_cluster_instance_create(struct ub_bus_controller *ubc, u32 *guid,
 	}
 
 	ubc->cluster_bi = bi;
+	dev_info(&ubc->dev, "static_cluster_instance_create done guid=%s\n", b_str);
 	return 0;
 
 unregister:
@@ -693,7 +703,14 @@ int ub_notify_bus_instance_handle(struct ub_bus_controller *ubc, bool flag,
 {
 	struct ub_bus_instance *bi;
 	struct ub_guid *tmp;
+	char b_str[SZ_64];
 	int ret;
+
+	(void)snprintf(b_str, SZ_64, "%#llx %llx", *((u64 *)&guid[SZ_2]),
+		       *((u64 *)&guid[0]));
+	dev_info(&ubc->dev,
+		 "notify_bus_instance flag=%d guid=%s eid=%#x upi=%#x\n",
+		 flag, b_str, eid, upi);
 
 	if (!flag) {
 		bi = ub_find_bus_instance(guid_match, guid);
@@ -932,6 +949,8 @@ int ub_default_bus_instance_init(struct ub_entity *uent)
 
 	use_cluster = is_p_device(uent) || is_p_idevice(uent) ||
 		      (is_ibus_controller(uent) && uent->ubc->cluster);
+	ub_info(uent, "default_bi_init start use_cluster=%d user_eid=%#x\n",
+		use_cluster, uent->user_eid);
 
 	if (use_cluster) {
 		mutex_lock(&dynamic_mutex);
@@ -946,10 +965,13 @@ int ub_default_bus_instance_init(struct ub_entity *uent)
 		ub_err(uent, "get default bi NULL\n");
 		return -EINVAL;
 	}
+	ub_info(uent, "default_bi_init found bi type=%u eid=%#x upi=%#x\n",
+		bi->info.type, bi->info.eid, bi->info.upi);
 
 	mutex_lock(&uent->instance_lock);
 	ret = ub_bind_bus_instance(uent, bi);
 	mutex_unlock(&uent->instance_lock);
+	ub_info(uent, "default_bi_init bind ret=%d\n", ret);
 
 	if (use_cluster) {
 		ub_bus_instance_put(bi);

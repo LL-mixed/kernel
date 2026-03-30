@@ -128,17 +128,8 @@ static void ub_config_upi(struct ub_entity *uent)
 
 	if (is_ibus_controller(uent) && uent->ubc->cluster) {
 		dev = &uent->ubc->dev;
-		ret = ub_cfg_read_word(uent, UB_UPI, &upi);
-		if (ret) {
-			dev_err(dev, "update cluster upi failed, ret=%d\n", ret);
-			return;
-		}
-
-		upi &= UB_UPI_MASK;
-		if (upi) {
-			dev_info(dev, "update cluster ubc upi, upi=%#x\n", upi);
-			uent->upi = upi;
-		}
+		dev_info(dev, "cluster controller keep preconfigured upi=%#x during setup\n",
+			 uent->upi);
 		return;
 	}
 
@@ -287,44 +278,67 @@ int ub_setup_ent(struct ub_entity *uent)
 	if (!uent)
 		return -EINVAL;
 
+	pr_info("ub_setup_ent enter guid=%pUb entity_idx=%u type=%#x class=%#x\n",
+		uent->guid.dw, uent->entity_idx, uent_type(uent), uent_class(uent));
+	pr_info("ub_setup_ent message_probe_device start\n");
 	ret = message_probe_device(uent);
 	if (ret) {
 		ub_err(uent, "probe message failed, ret=%d\n", ret);
 		return ret;
 	}
+	pr_info("ub_setup_ent message_probe_device done\n");
 
+	pr_info("ub_setup_ent ub_get_guid start\n");
 	ret = ub_get_guid(uent);
 	if (ret) {
 		ub_err(uent, "get guid failed, ret=%d\n", ret);
 		goto err_alloc;
 	}
+	pr_info("ub_setup_ent ub_get_guid done\n");
 
+	pr_info("ub_setup_ent ub_config_upi start\n");
 	ub_config_upi(uent);
+	pr_info("ub_setup_ent ub_config_upi done\n");
 
 	/* common setup */
+	pr_info("ub_setup_ent ub_eid_alloc start\n");
 	ret = ub_eid_alloc(uent);
 	if (ret) {
 		ub_err(uent, "alloc eid failed, ret=%d\n", ret);
 		goto err_alloc;
 	}
+	pr_info("ub_setup_ent ub_eid_alloc done eid=%#x\n", uent->eid);
 
+	pr_info("ub_setup_ent ub_entity_num_alloc start\n");
 	uent_num = ub_entity_num_alloc();
 	if (uent_num < 0) {
 		ub_err(uent, "alloc dev uent_num failed, ret=%d\n", uent_num);
 		ret = -ENOSPC;
 		goto free_eid;
 	}
+	pr_info("ub_setup_ent ub_entity_num_alloc done uent_num=%#x\n", uent_num);
 
+	pr_info("ub_setup_ent ub_uent_cfg start\n");
 	ret = ub_uent_cfg(uent, (u32)uent_num);
 	if (ret)
 		goto free_uent_num;
+	pr_info("ub_setup_ent ub_uent_cfg done\n");
 
+	pr_info("ub_setup_ent ub_config_eid start\n");
 	ub_config_eid(uent);
+	pr_info("ub_setup_ent ub_config_eid done\n");
+	pr_info("ub_setup_ent ub_set_cap_bitmap start\n");
 	ub_set_cap_bitmap(uent);
+	pr_info("ub_setup_ent ub_set_cap_bitmap done\n");
+	pr_info("ub_setup_ent ub_set_fm_info start\n");
 	ub_set_fm_info(uent);
+	pr_info("ub_setup_ent ub_set_fm_info done\n");
+	pr_info("ub_setup_ent ub_get_module_id start\n");
 	ub_get_module_id(uent);
+	pr_info("ub_setup_ent ub_get_module_id done\n");
 
 	ub_entity_assign_priv_flag(uent, UB_ENTITY_SETUP, true);
+	pr_info("ub_setup_ent exit success\n");
 	return 0;
 free_uent_num:
 	ub_entity_num_free(uent);

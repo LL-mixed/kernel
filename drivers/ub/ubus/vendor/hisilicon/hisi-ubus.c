@@ -49,17 +49,22 @@ static int __init hisi_ubus_driver_register(struct platform_driver *drv)
 {
 	int ret;
 
+	pr_info("hisi_ubus register start\n");
 	ret = register_ub_manage_subsystem_ops(&hisi_ub_manage_subsystem_ops);
-	if (ret)
+	if (ret) {
+		pr_err("hisi_ubus register manage subsystem failed, ret=%d\n", ret);
 		return ret;
+	}
 
 	ret = platform_driver_register(drv);
 	if (ret)
 		goto platform_driver_register_fail;
 
+	pr_info("hisi_ubus register done\n");
 	return 0;
 
 platform_driver_register_fail:
+	pr_err("hisi_ubus platform_driver_register failed, ret=%d\n", ret);
 	unregister_ub_manage_subsystem_ops(&hisi_ub_manage_subsystem_ops);
 	return ret;
 }

@@ -102,7 +102,7 @@ UB_PORT_ATTR_RO(linkup);
 
 static ssize_t neighbor_port_idx_show(struct ub_port *port, char *buf)
 {
-	if (!port->r_uent)
+	if (!port->r_uent && guid_is_null(&port->r_guid))
 		return sysfs_emit(buf, "No Neighbor\n");
 	return sysfs_emit(buf, "%u\n", port->r_index);
 }

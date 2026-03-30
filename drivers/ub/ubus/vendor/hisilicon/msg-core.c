@@ -93,6 +93,9 @@ static void hi_msg_queue_hw_init(struct hi_msg_core *hmc, int idx)
 {
 	struct hi_msg_queue *q = &hmc->queue[idx];
 
+	dev_info(hmc->dev,
+		 "hi_msg_queue_hw_init idx=%d depth=%#x pi=%#x ci=%#x dma=%pad\n",
+		 idx, q->depth, q->pi, q->ci, &q->dma_addr);
 	/* cfg depth pre */
 	hi_msg_reg_write(hmc, msgq_reg[idx].depth, q->depth);
 
@@ -108,6 +111,7 @@ static void hi_msg_queue_hw_init(struct hi_msg_core *hmc, int idx)
 	if (idx == MSG_RQ)
 		hi_msg_reg_write(hmc, msgq_reg[idx].entry_size,
 				 hi_msg_rqe_size_hw(HI_MSG_RQE_SIZE));
+	dev_info(hmc->dev, "hi_msg_queue_hw_init idx=%d done\n", idx);
 }
 
 static void hi_msg_reset_queue(struct hi_msg_core *hmc)
@@ -202,30 +206,39 @@ int hi_msg_core_init(struct hi_msg_core *hmc, int user)
 {
 	int i, j, ret;
 
+	dev_info(hmc->dev, "hi_msg_core_init start user=%d q_addr=%#llx q_size=%#x virq=%u\n",
+		 user, hmc->q_addr, hmc->q_size, hmc->virq);
 	hmc->user = user;
 	hmc->reg_base = ioremap(hmc->q_addr, hmc->q_size);
 	if (!hmc->reg_base)
 		return -ENOMEM;
+	dev_info(hmc->dev, "hi_msg_core_init ioremap done base=%p\n", hmc->reg_base);
 
 	for (i = 0; i < MSGQ_NUM; i++) {
 		ret = hi_msg_queue_sw_init(hmc, user, i);
 		if (ret)
 			goto sw_uninit;
 	}
+	dev_info(hmc->dev, "hi_msg_core_init sw_init done\n");
 
 	hi_msg_reset_queue(hmc);
+	dev_info(hmc->dev, "hi_msg_core_init reset done\n");
 
 	for (i = 0; i < MSGQ_NUM; i++)
 		hi_msg_queue_hw_init(hmc, i);
+	dev_info(hmc->dev, "hi_msg_core_init hw_init done\n");
 
 	ret = hi_msg_queue_irq_init(hmc);
 	if (ret)
 		goto sw_uninit; /* Now i = MSGQ_NUM */
+	dev_info(hmc->dev, "hi_msg_core_init irq_init done\n");
 
 	hi_msg_debugfs_init(hmc);
+	dev_info(hmc->dev, "hi_msg_core_init debugfs done\n");
 
 	return 0;
 sw_uninit:
+	dev_err(hmc->dev, "hi_msg_core_init failed ret=%d stage_i=%d\n", ret, i);
 	hi_msg_reset_queue(hmc);
 
 	for (j = 0; j < i; j++)

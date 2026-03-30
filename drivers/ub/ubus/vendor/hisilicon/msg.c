@@ -438,12 +438,14 @@ static int hi_msg_queue_init(struct hi_message_device *hmd)
 	size_t size;
 	int ret;
 
+	dev_info(hmc->dev, "hi_msg_queue_init start\n");
 	size = HI_CQE_STATE_SZ * HI_CQ_CFG_DEPTH;
 	hmd->cqe_state = kzalloc(size, GFP_KERNEL);
 	if (!hmd->cqe_state) {
 		dev_err(hmc->dev, "cqe state memory failed\n");
 		return -ENOMEM;
 	}
+	dev_info(hmc->dev, "hi_msg_queue_init cqe_state alloc done size=%zu\n", size);
 
 	ret = hi_msg_core_init(hmc, MSGQ_USER_BUS_DRV);
 	if (ret) {
@@ -451,8 +453,10 @@ static int hi_msg_queue_init(struct hi_message_device *hmd)
 		hmd->cqe_state = NULL;
 		return ret;
 	}
+	dev_info(hmc->dev, "hi_msg_queue_init core_init done\n");
 
 	hi_msg_cq_poller_init(hmd);
+	dev_info(hmc->dev, "hi_msg_queue_init cq_poller_init done\n");
 
 	return 0;
 }
@@ -513,6 +517,8 @@ static int hi_message_sync(struct message_device *mdev, struct msg_info *info,
 
 	hi_msg_sqe_init(&sqe, msn, info, task_type, code);
 	hi_msg_set_pkt_msn(info, task_type, msn, hmc->user);
+	dev_info(hmc->dev, "hi_message_sync submit type=%d code=%#x msn=%#x req=%#x rsp=%#x\n",
+		 task_type, code, msn, info->req_pkt_size, info->rsp_pkt_size);
 
 	cnt = hi_msg_sq_submit(
 		hmd, &sqe, (struct hi_msg_sqe_pld *)info->req_packet, 1, true);
@@ -524,6 +530,8 @@ static int hi_message_sync(struct message_device *mdev, struct msg_info *info,
 	}
 
 	cq_idx = hi_msg_sync_wait(hmd, task_type, msn, MSGQ_TIMEOUT, flag);
+	dev_info(hmc->dev, "hi_message_sync wait done type=%d code=%#x msn=%#x cq_idx=%d\n",
+		 task_type, code, msn, cq_idx);
 	if (cq_idx < 0) {
 		if (cq_idx == -ENOMEM)
 			hi_msn_put(task_type, msn);
@@ -833,25 +841,31 @@ int hi_msg_device_probe(struct ub_bus_controller *ubc)
 	snprintf(hmc->queue_name, HI_MSG_INT_NAME_LEN, "hi_msgq%u-%d",
 		 ubc->ctl_no, MSGQ_USER_BUS_DRV);
 
+	dev_info(dev, "hi_msg_device_probe queue init start\n");
 
 	ret = hi_msg_queue_init(hmd);
 	if (ret) {
 		dev_err(dev, "init message queue failed\n");
 		goto queue_init_fail;
 	}
+	dev_info(dev, "hi_msg_device_probe queue init done\n");
 
 	hi_timeout_msg_poller_init(hmd);
+	dev_info(dev, "hi_msg_device_probe timeout_poller_init done\n");
 
 	message_device_set_ops(&hmd->mdev, &hi_message_ops);
 	message_device_set_fwnode(&hmd->mdev, dev->fwnode);
+	dev_info(dev, "hi_msg_device_probe message_device_register start\n");
 
 	ret = message_device_register(&hmd->mdev);
 	if (ret) {
 		dev_err(dev, "register message device failed\n");
 		goto mdev_reg_fail;
 	}
+	dev_info(dev, "hi_msg_device_probe message_device_register done\n");
 
 	ubc->mdev = &hmd->mdev;
+	dev_info(dev, "hi_msg_device_probe done\n");
 
 	return 0;
 

@@ -50,6 +50,8 @@ int ub_bus_controller_probe(struct ub_bus_controller *ubc)
 {
 	int ret;
 
+	dev_info(&ubc->dev, "hisi controller probe start, cluster=%d ctl=%u\n",
+		 ubc->cluster, ubc->ctl_no);
 	ubc->ops = &hi_ubc_ops;
 	ub_bus_controller_debugfs_init(ubc);
 
@@ -57,9 +59,11 @@ int ub_bus_controller_probe(struct ub_bus_controller *ubc)
 	if (ret)
 		goto msg_fail;
 
+	dev_info(&ubc->dev, "hisi controller probe done\n");
 	return 0;
 
 msg_fail:
+	dev_err(&ubc->dev, "hisi controller probe failed, ret=%d\n", ret);
 	ub_bus_controller_debugfs_uninit(ubc);
 	ubc->ops = NULL;
 	return ret;

@@ -340,7 +340,8 @@ static void ub_enum_parse_port(struct ub_entity *uent,
 		if (!port_info->bits0.s)
 			continue;
 
-		if (!is_device(uent) && !is_idev(uent) && port->domain_boundary)
+		if (!is_device(uent) && !is_idev(uent) && port->domain_boundary &&
+		    !(is_ibus_controller(uent) && uent->ubc->cluster))
 			continue;
 
 		/* neighbor info of a boundary port shouldn't be stored */
@@ -1138,14 +1139,28 @@ next:
 static int ub_enum_and_configure_ent(struct ub_entity *uent, void *buf)
 {
 	int ret;
+	struct device *dev = &uent->ubc->dev;
+
+	dev_info(dev, "ub_enum_and_configure_ent start guid=%pUb rank=%u type=%#x\n",
+		 &uent->guid.id, uent->topo_rank, uent->guid.bits.type);
 
 	ret = ub_enum_ent(uent, buf);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "ub_enum_ent failed guid=%pUb ret=%d\n",
+			&uent->guid.id, ret);
 		return ret;
+	}
 
 	ret = ub_enum_na_cfg(uent, buf);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "ub_enum_na_cfg failed guid=%pUb ret=%d\n",
+			&uent->guid.id, ret);
 		ub_ports_unset(uent);
+		return ret;
+	}
+
+	dev_info(dev, "ub_enum_and_configure_ent done guid=%pUb ports=%u cna=%#x\n",
+		 &uent->guid.id, uent->port_nums, uent->cna);
 
 	return ret;
 }
@@ -1173,6 +1188,8 @@ static int ub_enum_bus_controllers(struct list_head *dev_list)
 	int ret;
 
 	list_for_each_entry(ubc, &ubc_list, node) {
+		dev_info(&ubc->dev, "ub_enum_bus_controllers start cluster=%d\n",
+			 ubc->cluster);
 		uent = ub_enum_create_bus_controller(ubc);
 		if (IS_ERR(uent)) {
 			ret = PTR_ERR(uent);
@@ -1189,6 +1206,8 @@ static int ub_enum_bus_controllers(struct list_head *dev_list)
 			goto clear_list;
 		}
 
+		dev_info(&ubc->dev, "ub_enum_bus_controllers add controller guid=%pUb\n",
+			 &uent->guid.id);
 		list_add_tail(&uent->node, dev_list);
 	}
 
@@ -1232,6 +1251,15 @@ static bool port_need_scan(struct ub_entity *root, struct ub_port *port)
 		return false;
 
 	if (guid_is_null(&port->r_guid))
+		return false;
+
+	/*
+	 * A cluster controller boundary port may carry peer identity that should
+	 * be exposed via sysfs, but it is not a topo-scan edge for creating a
+	 * new local ub_entity.
+	 */
+	if (is_ibus_controller(port->uent) && port->uent->ubc->cluster &&
+	    port->domain_boundary)
 		return false;
 
 	if (root && ub_enum_port_recognise_check(root, port))
@@ -1375,6 +1403,7 @@ static int ub_enum_topo_scan(struct list_head *dev_list)
 {
 	int ret;
 
+	pr_info("ub_enum_topo_scan start\n");
 	ret = ub_enum_topo_scan_init();
 	if (ret) {
 		pr_err("enum topo scan init failed, ret=%d\n", ret);
@@ -1386,6 +1415,8 @@ static int ub_enum_topo_scan(struct list_head *dev_list)
 		pr_err("enum create controllers failed, ret=%d\n", ret);
 		goto out;
 	}
+	pr_info("ub_enum_topo_scan controllers ready count=%u\n",
+		(unsigned int)!list_empty(dev_list));
 
 	if (list_empty(dev_list)) {
 		pr_warn("No ub bus controller exists in the current environment.\n");
@@ -1396,9 +1427,12 @@ static int ub_enum_topo_scan(struct list_head *dev_list)
 	ret = ub_enum_do_topo_scan(NULL, dev_list, topo_scan.buf);
 	if (ret)
 		pr_err("enum scan devices failed, ret=%d\n", ret);
+	else
+		pr_info("ub_enum_topo_scan devices ready\n");
 
 out:
 	ub_enum_topo_scan_uninit();
+	pr_info("ub_enum_topo_scan done ret=%d\n", ret);
 	return ret;
 }
 
@@ -1425,20 +1459,37 @@ int ub_enum_entities_active(struct list_head *dev_list)
 		if (uent->entity_idx != 0)
 			continue;
 
+		pr_info("ub_enum_entities_active route_sync start guid=%pUb type=%#x rank=%u\n",
+			&uent->guid.id, uent->guid.bits.type, uent->topo_rank);
 		ub_route_sync_dev(uent);
+		pr_info("ub_enum_entities_active route_sync done guid=%pUb\n",
+			&uent->guid.id);
+
+		pr_info("ub_enum_entities_active setup start guid=%pUb\n",
+			&uent->guid.id);
 		ret = ub_setup_ent(uent);
 		if (ret) {
 			pr_err("setup dev err, ret=%d\n", ret);
 			return ret;
 		}
+		pr_info("ub_enum_entities_active setup done guid=%pUb\n",
+			&uent->guid.id);
 
 		list_del(&uent->node);
+		pr_info("ub_enum_entities_active add start guid=%pUb\n",
+			&uent->guid.id);
 		ub_entity_add(uent, uent->ubc);
+		pr_info("ub_enum_entities_active add done guid=%pUb\n",
+			&uent->guid.id);
 
 		if (is_ibus_controller(uent) && uent->ubc->cluster)
 			continue;
 
+		pr_info("ub_enum_entities_active start_ent start guid=%pUb\n",
+			&uent->guid.id);
 		ub_start_ent(uent);
+		pr_info("ub_enum_entities_active start_ent done guid=%pUb\n",
+			&uent->guid.id);
 	}
 
 	return 0;
@@ -1448,8 +1499,10 @@ int ub_enum_probe(void)
 {
 	int ret;
 
+	pr_info("ub_enum_probe start\n");
 	ret = ub_enum_topo_scan(&topo_scan.dev_list);
 	if (ret == -ENODEV) {
+		pr_info("ub_enum_probe no devices\n");
 		return 0;
 	} else if (ret) {
 		pr_err("topo_scan failed, ret=%d\n", ret);
@@ -1461,12 +1514,14 @@ int ub_enum_probe(void)
 		pr_err("route cal failed, ret=%d\n", ret);
 		goto err_out;
 	}
+	pr_info("ub_enum_probe route_cal done\n");
 
 	ret = ub_enum_entities_active(&topo_scan.dev_list);
 	if (ret) {
 		pr_err("devices start failed, ret=%d\n", ret);
 		goto err_out;
 	}
+	pr_info("ub_enum_probe entities_active done\n");
 
 	return 0;
 err_out:

@@ -534,8 +534,14 @@ static void ub_cfg_cpl_notify_handler(struct ub_bus_controller *ubc, void *msg,
 		goto rsp;
 	}
 
+	dev_info(&ubc->dev,
+		 "cfg_cpl_notify flag=%u eid=%#x upi=%#x guid=%pUb start\n",
+		 notify->flag, notify->eid[0], ubc->uent ? ubc->uent->upi : 0,
+		 notify->guid);
+
 	ret = ub_fm_flush_ubc_info(ubc);
 	if (ret) {
+		dev_err(&ubc->dev, "cfg_cpl_notify flush ubc info failed ret=%d\n", ret);
 		rsp_status = err_to_msg_rsp(ret);
 		goto rsp;
 	}
@@ -547,10 +553,14 @@ static void ub_cfg_cpl_notify_handler(struct ub_bus_controller *ubc, void *msg,
 		rsp_status = err_to_msg_rsp(ret);
 		goto rsp;
 	}
+	dev_info(&ubc->dev, "cfg_cpl_notify notify_bus_instance done\n");
 
 	if (!ub_entity_test_priv_flag(ubc->uent, UB_ENTITY_START)) {
 		ubc->uent->user_eid = notify->eid[0];
+		dev_info(&ubc->dev, "cfg_cpl_notify set user_eid=%#x and start entity\n",
+			 ubc->uent->user_eid);
 		ub_start_ent(ubc->uent);
+		dev_info(&ubc->dev, "cfg_cpl_notify ub_start_ent done\n");
 	}
 
 rsp:

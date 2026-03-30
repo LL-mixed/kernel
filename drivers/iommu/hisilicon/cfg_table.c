@@ -1070,7 +1070,13 @@ int ummu_set_domain_cfgs_tag(struct ummu_domain_cfgs *cfgs,
 
 	if (dev_is_ub(master->dev)) {
 		uent = to_ub_entity(master->dev);
-		if (ub_bi_is_dynamic(uent->bi))
+		/*
+		 * Not every UB entity binds a bus instance. Switch entities, for
+		 * example, skip default bus-instance binding during bring-up, so
+		 * cluster paths must tolerate a missing uent->bi and fall back to
+		 * the local/default OS meta.
+		 */
+		if (uent->bi && ub_bi_is_dynamic(uent->bi))
 			target = &uent->bi->info.guid.id;
 		meta = ummu_get_os_meta_by_guid(target);
 		if (!meta) {
@@ -1233,7 +1239,7 @@ bool dev_work_on_local(struct ummu_master *master)
 
 	if (dev_is_ub(master->dev)) {
 		uent = to_ub_entity(master->dev);
-		if (ub_bi_is_dynamic(uent->bi))
+		if (uent->bi && ub_bi_is_dynamic(uent->bi))
 			return false;
 	}
 	return true;

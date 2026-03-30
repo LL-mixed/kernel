@@ -622,18 +622,23 @@ static int ub_host_probe(void)
 {
 	int ret;
 
+	pr_info("ub_host_probe start\n");
 	ub_bus_type_init();
+	pr_info("ub_host_probe bus_type_init done\n");
 	ret = ub_cfg_ops_init();
 	if (ret)
 		goto ub_cfg_ops_init_fail;
+	pr_info("ub_host_probe cfg_ops_init done\n");
 
 	ret = ub_bus_controllers_probe();
 	if (ret)
 		goto ubcs_probe_fail;
+	pr_info("ub_host_probe bus_controllers_probe done\n");
 
 	ret = ub_enum_probe();
 	if (ret)
 		goto ub_enum_probe_fail;
+	pr_info("ub_host_probe enum_probe done\n");
 
 	/*
 	 * Now ub_bus_type build-in, bus_attr_groups will not created,
@@ -642,18 +647,22 @@ static int ub_host_probe(void)
 	ret = ub_bus_attr_dynamic_init();
 	if (ret)
 		goto ub_bus_attr_dynamic_init_fail;
+	pr_info("ub_host_probe bus_attr_dynamic_init done\n");
 
 	ret = bus_register(&ub_service_bus_type);
 	if (ret)
 		goto bus_register_fail;
+	pr_info("ub_host_probe service_bus_register done\n");
 
 	ret = ub_services_init();
 	if (ret)
 		goto ub_services_init_fail;
+	pr_info("ub_host_probe services_init done\n");
 
 	ret = ub_cdev_init();
 	if (ret)
 		goto cdev_fail;
+	pr_info("ub_host_probe cdev_init done\n");
 
 	if (!manage_subsystem_ops || !manage_subsystem_ops->ras_handler_probe) {
 		ret = -EFAULT;
@@ -663,10 +672,12 @@ static int ub_host_probe(void)
 	ret = manage_subsystem_ops->ras_handler_probe();
 	if (ret)
 		goto error_register_fail;
+	pr_info("ub_host_probe ras_handler_probe done\n");
 
 	ret = message_rx_init();
 	if (ret)
 		goto message_init_fail;
+	pr_info("ub_host_probe message_rx_init done\n");
 
 	return 0;
 
