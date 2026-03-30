@@ -306,8 +306,14 @@ static ssize_t direct_link_show(struct device *dev,
 	int cnt = 0;
 
 	for_each_uent_port(port, uent) {
-		if (!port->r_uent)
+		if (!port->r_uent) {
+			if (!guid_is_null(&port->r_guid))
+				cnt += sysfs_emit_at(buf, cnt,
+					     "%#04x : %#04x [%pUb]\n",
+					     port->index, port->r_index,
+					     &port->r_guid);
 			continue;
+		}
 		cnt += sysfs_emit_at(buf, cnt, "%#04x : %#04x [%#05x]\n",
 				     port->index, port->r_index,
 				     port->r_uent->uent_num);
