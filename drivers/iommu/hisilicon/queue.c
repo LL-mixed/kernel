@@ -396,9 +396,18 @@ static int ummu_evtq_init(struct ummu_device *ummu)
 	if (ret)
 		return ret;
 
-	if ((ummu->cap.features & UMMU_FEAT_SVA) &&
-	    (ummu->cap.features & UMMU_FEAT_STALLS))
-		return ummu_iopf_queue_alloc(ummu);
+	if (ummu->cap.features & UMMU_FEAT_STALLS) {
+		pr_err("ummu_evtq_init: STALLS set, allocating IOPF queue\n");
+		ret = ummu_iopf_queue_alloc(ummu);
+		if (ret)
+			pr_err("ummu_evtq_init: IOPF queue alloc failed: %d\n", ret);
+		else
+			pr_err("ummu_evtq_init: IOPF queue allocated OK\n");
+		return ret;
+	}
+
+	pr_err("ummu_evtq_init: STALLS not set, features=0x%x\n",
+		 ummu->cap.features);
 
 	return 0;
 }
