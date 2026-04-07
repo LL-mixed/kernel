@@ -910,8 +910,8 @@ static int udma_alloc_dev_tid(struct udma_dev *udma_dev)
 
 	ret = udma_enable_usva(udma_dev);
 	if (ret) {
-		dev_err(udma_dev->dev, "Failed to enable usva, ret = %d.\n", ret);
-		return ret;
+		dev_warn(udma_dev->dev, "USVA not available (ret=%d), skip USVA setup\n", ret);
+		return 0;
 	}
 
 	ret = iommu_dev_enable_feature(udma_dev->dev, IOMMU_DEV_FEAT_KSVA);
@@ -959,6 +959,9 @@ static void udma_free_dev_tid(struct udma_dev *udma_dev)
 	struct iommu_sva *ksva = NULL;
 	size_t token_id;
 	int ret;
+
+	if (!udma_dev->ksva)
+		return;
 
 	ret = ummu_sva_ungrant_range(udma_dev->ksva, 0, UDMA_MAX_GRANT_SIZE, NULL);
 	if (ret)

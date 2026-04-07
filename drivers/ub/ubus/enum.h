@@ -196,4 +196,7 @@ void ub_enum_remove(void);
 bool ub_type_valid(struct ub_entity *uent, bool is_ctl);
 void ub_entity_type_init(struct ub_entity *uent);
 
+/* Rescan self-healing mechanism */
+void ub_schedule_rescan(const char *reason);
+
 #endif /* __ENUM_H__ */

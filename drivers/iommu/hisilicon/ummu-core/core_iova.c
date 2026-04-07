@@ -11,6 +11,7 @@
 #include <linux/iova.h>
 
 #include "../../dma-iommu.h"
+#include "../../iommu-priv.h"
 #include "ummu_core_priv.h"
 
 struct iova_slot {
@@ -250,6 +251,108 @@ static void free_iova_slot(struct iova_slot *slot)
 	kfree(slot);
 }
 
+static DEFINE_MUTEX(ensure_dma_domain_lock);
+
+/*
+ * If the device's current domain is not DMA-capable (e.g. identity),
+ * allocate a proper DMA domain, initialise its IOVA allocator, and
+ * attach the device to it so that dma_alloc_iova() can manage IOVA
+ * ranges for the device.
+ */
+static struct iommu_domain *ensure_dma_domain(struct device *dev)
+{
+	struct iommu_domain *domain;
+	const struct iommu_ops *ops;
+	struct iova_domain *iovad;
+	unsigned long order;
+	int ret;
+
+	domain = iommu_get_domain_for_dev(dev);
+	if (domain && iommu_is_dma_domain(domain))
+		return domain;
+
+	if (!domain)
+		return ERR_PTR(-ENODEV);
+
+	mutex_lock(&ensure_dma_domain_lock);
+
+	/* Re-check after lock */
+	domain = iommu_get_domain_for_dev(dev);
+	if (domain && iommu_is_dma_domain(domain)) {
+		mutex_unlock(&ensure_dma_domain_lock);
+		return domain;
+	}
+
+	ops = dev_iommu_ops(dev);
+	if (!ops) {
+		pr_err("no iommu ops for dev\n");
+		ret = -ENODEV;
+		goto err_unlock;
+	}
+
+	if (ops->domain_alloc_paging)
+		domain = ops->domain_alloc_paging(dev);
+	else if (ops->domain_alloc)
+		domain = ops->domain_alloc(IOMMU_DOMAIN_DMA);
+	else {
+		pr_err("no domain_alloc op\n");
+		ret = -EOPNOTSUPP;
+		goto err_unlock;
+	}
+
+	if (IS_ERR_OR_NULL(domain)) {
+		ret = domain ? PTR_ERR(domain) : -ENOMEM;
+		pr_err("domain_alloc failed: %d\n", ret);
+		goto err_unlock;
+	}
+
+	domain->type = IOMMU_DOMAIN_DMA;
+	domain->owner = ops;
+	if (!domain->pgsize_bitmap)
+		domain->pgsize_bitmap = ops->pgsize_bitmap;
+	if (!domain->ops)
+		domain->ops = ops->default_domain_ops;
+
+	ret = iommu_get_dma_cookie(domain);
+	if (ret) {
+		pr_err("iommu_get_dma_cookie failed: %d\n", ret);
+		goto err_free;
+	}
+
+	iovad = iommu_get_iova_domain(domain);
+	if (!iovad) {
+		pr_err("iommu_get_iova_domain returned NULL\n");
+		ret = -EFAULT;
+		goto err_put_cookie;
+	}
+
+	order = __ffs(domain->pgsize_bitmap);
+	init_iova_domain(iovad, 1UL << order, 1);
+	ret = iova_domain_init_rcaches(iovad);
+	if (ret) {
+		pr_err("iova_domain_init_rcaches failed: %d\n", ret);
+		goto err_put_cookie;
+	}
+
+	ret = iommu_attach_device(domain, dev);
+	if (ret) {
+		pr_err("iommu_attach_device failed: %d\n", ret);
+		goto err_put_cookie;
+	}
+
+	pr_info("allocated DMA domain for %s\n", dev_name(dev));
+	mutex_unlock(&ensure_dma_domain_lock);
+	return domain;
+
+err_put_cookie:
+	iommu_put_dma_cookie(domain);
+err_free:
+	domain->ops->free(domain);
+err_unlock:
+	mutex_unlock(&ensure_dma_domain_lock);
+	return ERR_PTR(ret);
+}
+
 struct iova_slot *dma_alloc_iova(struct device *dev, size_t size,
 				 unsigned long attrs, dma_addr_t *iovap,
 				 size_t *sizep)
@@ -261,9 +364,22 @@ struct iova_slot *dma_alloc_iova(struct device *dev, size_t size,
 
 	size = PAGE_ALIGN(size);
 	domain = iommu_get_domain_for_dev(dev);
-	if (!domain || !iommu_is_dma_domain(domain)) {
+	pr_info("dma_alloc_iova: dev=%s domain=%p type=0x%x\n",
+		dev ? dev_name(dev) : "NULL", domain,
+		domain ? domain->type : 0);
+	if (!domain) {
 		ret = -ENODEV;
 		goto err_out;
+	}
+	if (!iommu_is_dma_domain(domain)) {
+		pr_info("dma_alloc_iova: not DMA domain, calling ensure_dma_domain\n");
+		domain = ensure_dma_domain(dev);
+		if (IS_ERR(domain)) {
+			pr_err("dma_alloc_iova: ensure_dma_domain failed: %ld\n",
+			       PTR_ERR(domain));
+			ret = PTR_ERR(domain);
+			goto err_out;
+		}
 	}
 	iova = domain_alloc_iova(domain, size, dev->coherent_dma_mask, dev);
 	if (!iova) {

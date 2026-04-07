@@ -397,13 +397,11 @@ static int ummu_evtq_init(struct ummu_device *ummu)
 		return ret;
 
 	if (ummu->cap.features & UMMU_FEAT_STALLS) {
-		pr_err("ummu_evtq_init: STALLS set, allocating IOPF queue\n");
 		ret = ummu_iopf_queue_alloc(ummu);
 		if (ret)
-			pr_err("ummu_evtq_init: IOPF queue alloc failed: %d\n", ret);
+			dev_warn(ummu->dev, "IOPF queue alloc failed (SVA not enabled?): %d\n", ret);
 		else
-			pr_err("ummu_evtq_init: IOPF queue allocated OK\n");
-		return ret;
+			dev_info(ummu->dev, "IOPF queue allocated OK\n");
 	}
 
 	pr_err("ummu_evtq_init: STALLS not set, features=0x%x\n",
@@ -414,16 +412,30 @@ static int ummu_evtq_init(struct ummu_device *ummu)
 
 int ummu_init_queues(struct ummu_device *ummu)
 {
+	int ret;
+
 	if (!(ummu->cap.features & UMMU_FEAT_MCMDQ) ||
-	    !(ummu->cap.features & UMMU_FEAT_EVENTQ))
+	    !(ummu->cap.features & UMMU_FEAT_EVENTQ)) {
+		dev_err(ummu->dev, "missing MCMDQ or EVENTQ feature, features=0x%x\n",
+			ummu->cap.features);
 		return -EOPNOTSUPP;
+	}
 
-	if (ummu_mcmdq_init(ummu))
+	dev_err(ummu->dev, "ummu_init_queues: calling mcmdq_init\n");
+	ret = ummu_mcmdq_init(ummu);
+	if (ret) {
+		dev_err(ummu->dev, "ummu_init_queues: mcmdq_init failed: %d\n", ret);
 		return -ENOMEM;
+	}
 
-	if (ummu_evtq_init(ummu))
+	dev_err(ummu->dev, "ummu_init_queues: calling evtq_init\n");
+	ret = ummu_evtq_init(ummu);
+	if (ret) {
+		dev_err(ummu->dev, "ummu_init_queues: evtq_init failed: %d\n", ret);
 		return -ENOMEM;
+	}
 
+	dev_err(ummu->dev, "ummu_init_queues: success\n");
 	return 0;
 }
 

@@ -58,11 +58,19 @@ static int ipourma_ubcore_add_device(struct ubcore_device *ubc_dev)
 	uint32_t ipourma_en;
 
 	ipourma_en = ubc_dev->attr.dev_cap.feature.bs.ipourma_en;
-	if (ipourma_en == 0)
+	pr_info("[ipourma] ubcore add: dev=%s ipourma_en=%u\n",
+		ubc_dev->dev_name, ipourma_en);
+	if (ipourma_en == 0) {
+		pr_info("[ipourma] skip dev=%s: ipourma_en=0\n",
+			ubc_dev->dev_name);
 		return -EOPNOTSUPP;
+	}
 	/* need to skip unsupported device */
-	if (strstr(ubc_dev->dev_name, "udma") == NULL)
+	if (strstr(ubc_dev->dev_name, "udma") == NULL) {
+		pr_info("[ipourma] skip dev=%s: not udma\n",
+			ubc_dev->dev_name);
 		return -EOPNOTSUPP;
+	}
 
 	ipou_ndev = ipourma_alloc_netdev(ubc_dev);
 	if (IS_ERR_OR_NULL(ipou_ndev)) {

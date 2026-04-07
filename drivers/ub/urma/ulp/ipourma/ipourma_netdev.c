@@ -413,8 +413,8 @@ static netdev_tx_t ipourma_start_xmit(struct sk_buff *skb, struct net_device *de
 	proto = ntohs(skb->protocol);
 
 	pr_skb_head_plus_linear(skb, "start xmit");
-	/* only support IPv6 */
-	if (proto != ETH_P_IPV6) {
+	/* accept IPv4 and IPv6 for QEMU simulation */
+	if (proto != ETH_P_IPV6 && proto != ETH_P_IP) {
 		priv->runtime_stats.tx_stats.not_ipv6_proto++;
 		netdev_dbg(dev, "Unsupported ether type: %u", proto);
 		goto drop_out;
@@ -645,14 +645,18 @@ void ipourma_create_new_eid(struct ipourma_dev_priv *priv, u32 eid_idx)
 
 	ret = ipourma_urma_init_by_eid(priv, eid_idx);
 	if (ret != IPOURMA_OK) {
+		netdev_err(priv->dev, "urma init by eid failed ret=%d idx=%u\n", ret, eid_idx);
 		memset(&priv->eid_info[eid_idx].eid, 0, UBCORE_EID_SIZE);
 		if (netif_running(priv->dev))
 			atomic_sub(1, &priv->need_set_ip_route);
 		return;
 	}
 
+	netdev_info(priv->dev, "urma init ok idx=%u netif_running=%d need_set_ip=%d\n",
+		eid_idx, netif_running(priv->dev), atomic_read(&priv->need_set_ip_route));
 	if (netif_running(priv->dev) && atomic_read(&priv->need_set_ip_route) > 0) {
-		ipourma_send_ipv6_netlink(priv->dev, &(priv->eid_info[eid_idx].eid), RTM_NEWADDR);
+		ret = ipourma_send_ipv6_netlink(priv->dev, &(priv->eid_info[eid_idx].eid), RTM_NEWADDR);
+		netdev_info(priv->dev, "send_ipv6_netlink ret=%d\n", ret);
 		ipourma_add_route_rule(priv, &(priv->eid_info[eid_idx].eid));
 		ipourma_add_route_entry(&(priv->set_route_entry));
 		atomic_sub(1, &priv->need_set_ip_route);

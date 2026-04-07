@@ -193,6 +193,7 @@ int message_rx_init(void)
 
 	wmb(); /* Ensure the register is written correctly. */
 	atomic_set(&msg_rx_flag, 1);
+	pr_info("message_rx_init done\n");
 
 	return 0;
 }
@@ -285,6 +286,10 @@ static void message_rx_work(struct work_struct *work)
 	rx_msg_handler_t handler;
 
 	handler = rx_msg_handler[msg_code];
+	dev_info(&ubc->dev,
+		 "message_rx_work code=%#x msg_code=%#x subcode=%#x len=%u\n",
+		 header->msgetah.code, msg_code, header->msgetah.sub_msg_code,
+		 task->len);
 
 	if (msg_code == UB_MSG_CODE_VDM)
 		handler = ubc->mdev->ops->vdm_rx_handler;
@@ -305,6 +310,11 @@ int message_rx_handler(struct ub_bus_controller *ubc, void *pkt, u16 len)
 	struct ub_rx_msg_task *task;
 
 	if (!atomic_read(&msg_rx_flag))
+		dev_warn(&ubc->dev,
+			 "message_rx_handler drop before ready code=%#x msg_code=%#x subcode=%#x len=%#x\n",
+			 msgetah->code, msgetah->msg_code, msgetah->sub_msg_code,
+			 len);
+	if (!atomic_read(&msg_rx_flag))
 		return -EBUSY;
 
 	if (len < MSG_PKT_HEADER_SIZE) {
@@ -324,7 +334,10 @@ int message_rx_handler(struct ub_bus_controller *ubc, void *pkt, u16 len)
 		return -EINVAL;
 	}
 
-	dev_info(&ubc->dev, "rx msg coming, code=%#x\n", msgetah->code);
+	dev_info(&ubc->dev,
+		 "rx msg coming code=%#x msg_code=%#x subcode=%#x len=%#x plen=%#x cluster=%d\n",
+		 msgetah->code, msgetah->msg_code, msgetah->sub_msg_code, len,
+		 msgetah->plen, ubc->cluster);
 
 	task = message_rx_task_alloc_and_init(ubc, pkt, len, message_rx_work);
 	if (IS_ERR(task))

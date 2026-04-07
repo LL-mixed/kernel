@@ -476,10 +476,8 @@ int _ub_entity_setup_mmio(struct ub_entity *dev)
 	int ret;
 	int i;
 
-	if (is_ibus_controller(dev)) {
-		ub_info(dev, "now doesn't support ub bus controller mmio\n");
-		return 0;
-	}
+	if (is_ibus_controller(dev))
+		ub_info(dev, "setup ub bus controller mmio from cfg1 resources\n");
 
 	if (is_device(dev) && !is_p_device(dev)) {
 		ret = ub_query_token_info(dev);

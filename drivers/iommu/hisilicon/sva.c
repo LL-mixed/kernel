@@ -141,7 +141,8 @@ int ummu_master_enable_sva(struct ummu_master *master,
 			return -EBUSY;
 		}
 
-		if (ummu_master_iopf_supported(master)) {
+		if (ummu_master_iopf_supported(master) &&
+		    !master->iopf_enabled) {
 			ret = ummu_master_sva_enable_iopf(master);
 			if (ret) {
 				pr_err("enable iopf failed!\n");

@@ -671,6 +671,10 @@ void ub_pool_rx_msg_handler(struct ub_bus_controller *ubc, void *pkt, u16 len)
 	u8 sub_msg_code = header->msgetah.sub_msg_code;
 	rx_msg_handler_t handler;
 
+	dev_info(&ubc->dev,
+		 "pool_rx code=%#x subcode=%#x len=%u rsp_type=%u\n",
+		 header->msgetah.code, sub_msg_code, len, header->msgetah.type);
+
 	handler = pool_rx_msg_handler[sub_msg_code];
 	if (handler)
 		handler(ubc, pkt, len);

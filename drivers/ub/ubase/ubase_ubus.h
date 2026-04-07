@@ -31,6 +31,10 @@
 #define UBASE_DEV_ID_A_0_UBOE_MUE	0xD80B
 #define UBASE_DEV_ID_A_0_UBOE_UE	0xD80C
 
+/* QEMU simulation IDs used by UB bus entities in this workspace. */
+#define UBASE_DEV_ID_SIM_URMA_MUE	0x0541
+#define UBASE_DEV_ID_SIM_URMA_UE	0x0542
+
 struct ubase_bus_eid;
 
 int ubase_ubus_register_driver(void);

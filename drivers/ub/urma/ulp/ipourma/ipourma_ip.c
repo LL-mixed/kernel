@@ -11,6 +11,7 @@
 #include <linux/inet.h>
 #include "ipourma_addr_res.h"
 #include "ipourma_ip.h"
+#include "ipourma_netdev.h"
 
 #define IPV6_PREFIX_LEN 64
 
@@ -87,15 +88,61 @@ void ipourma_init_ipv6_addr(struct work_struct *work)
 	priv = container_of(work, struct ipourma_dev_priv, set_ip);
 	dev = priv->dev;
 
+	/*
+	 * Re-discover EIDs from eid_table in case the EID_CHANGE async event
+	 * was dispatched before our handler was registered (race during probe).
+	 * This also creates URMA resources (jfr, jetty) and sets the IPv6
+	 * address for each discovered EID via ipourma_create_new_eid().
+	 */
+	if (priv->eid_count == 0 && priv->urma_dev != NULL) {
+		struct ubcore_device *urma_dev = priv->urma_dev;
+		uint32_t discovered = 0;
+
+		spin_lock(&urma_dev->eid_table.lock);
+		if (!IS_ERR_OR_NULL(urma_dev->eid_table.eid_entries)) {
+			uint32_t max_cnt = urma_dev->attr.dev_cap.max_eid_cnt;
+
+			for (i = 0; i < max_cnt && i < IPOURMA_MAX_EID_CNT; i++) {
+				if (urma_dev->eid_table.eid_entries[i].valid &&
+				    !eid_is_empty(&urma_dev->eid_table.eid_entries[i].eid) &&
+				    eid_is_empty(&priv->eid_info[i].eid)) {
+					priv->eid_info[i].eid =
+						urma_dev->eid_table.eid_entries[i].eid;
+					priv->eid_info[i].eid_index = i;
+					discovered++;
+				}
+			}
+		}
+		spin_unlock(&urma_dev->eid_table.lock);
+
+		if (discovered > 0) {
+			pr_info("[ipourma] re-discovered %u EID(s) from eid_table\n",
+				discovered);
+			for (i = 0; i < IPOURMA_MAX_EID_CNT; i++) {
+				if (eid_is_empty(&priv->eid_info[i].eid))
+					continue;
+				priv->eid_count++;
+				atomic_add(1, &priv->need_set_ip_route);
+				ipourma_create_new_eid(priv, (u32)i);
+			}
+			return; /* ipourma_create_new_eid handles IPv6 setup */
+		}
+	}
+
+	pr_info("[ipourma] init_ipv6_addr: eid_count=%d urma_dev=%p\n",
+		priv->eid_count, priv->urma_dev);
+
 	for (i = 0; i < IPOURMA_MAX_EID_CNT; i++) {
 		if (eid_is_empty(&priv->eid_info[i].eid))
 			continue;
+		pr_info("[ipourma] init_ipv6_addr: send ipv6 for eid_idx=%d\n", i);
 		ret = ipourma_send_ipv6_netlink(dev, &(priv->eid_info[i].eid), RTM_NEWADDR);
+		pr_info("[ipourma] init_ipv6_addr: send_ipv6 ret=%d\n", ret);
 		if (ret != 0)
 			goto ipv6_uninit;
 	}
 
-	pr_debug("init_ipv6_addr success\n");
+	pr_info("init_ipv6_addr success\n");
 	return;
 
 ipv6_uninit:

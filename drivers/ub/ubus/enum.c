@@ -6,6 +6,9 @@
 #define pr_fmt(fmt)	"ubus enum: " fmt
 
 #include <linux/kfifo.h>
+#include <linux/workqueue.h>
+#include <linux/mutex.h>
+#include <linux/delay.h>
 
 #include "ubus.h"
 #include "ubus_inner.h"
@@ -17,6 +20,14 @@
 #include "enum.h"
 
 #define ENUM_MAX_HOPS 255
+#define RESCAN_DEBOUNCE_MS 100
+
+/* Rescan workqueue and synchronization */
+static struct workqueue_struct *ub_rescan_wq;
+static struct work_struct ub_rescan_work;
+static DEFINE_MUTEX(ub_rescan_mutex);
+static atomic_t ub_rescan_pending = ATOMIC_INIT(0);
+static unsigned long ub_last_rescan_time;
 
 enum enum_topo_query_opcode {
 	ENUM_TOPO_QUERY_RESPONSE = 0,
@@ -1534,3 +1545,92 @@ void ub_enum_remove(void)
 	ub_stop_entities();
 	ub_remove_entities();
 }
+
+/* Rescan worker function - serialized execution */
+static void ub_rescan_worker(struct work_struct *work)
+{
+	int ret;
+	unsigned long now = jiffies_to_msecs(jiffies);
+
+	pr_info("ub_enum_rescan: starting rescan (pending=%d)\n",
+		atomic_read(&ub_rescan_pending));
+
+	/* Check debounce window */
+	if (now - ub_last_rescan_time < RESCAN_DEBOUNCE_MS) {
+		pr_debug("ub_enum_rescan: within debounce window, skipping\n");
+		return;
+	}
+
+	/* Acquire mutex to prevent concurrent rescans */
+	if (!mutex_trylock(&ub_rescan_mutex)) {
+		pr_debug("ub_enum_rescan: rescan already in progress, skipping\n");
+		return;
+	}
+
+	atomic_set(&ub_rescan_pending, 0);
+	ub_last_rescan_time = now;
+
+	/* Safe rescan flow: remove then probe */
+	pr_info("ub_enum_rescan: removing old entities\n");
+	ub_enum_remove();
+
+	pr_info("ub_enum_rescan: probing entities\n");
+	ret = ub_enum_probe();
+	if (ret) {
+		pr_err("ub_enum_rescan: probe failed, ret=%d\n", ret);
+	} else {
+		pr_info("ub_enum_rescan: probe succeeded\n");
+	}
+
+	mutex_unlock(&ub_rescan_mutex);
+}
+
+/* Schedule a rescan with debounce */
+void ub_schedule_rescan(const char *reason)
+{
+	unsigned long now = jiffies_to_msecs(jiffies);
+
+	pr_info("ub_enum_rescan: scheduled (reason=%s)\n", reason ? reason : "unknown");
+
+	/* Update pending counter */
+	atomic_inc(&ub_rescan_pending);
+
+	/* Check if we need to schedule work */
+	if (now - ub_last_rescan_time >= RESCAN_DEBOUNCE_MS) {
+		/* Outside debounce window, schedule immediately */
+		queue_work(ub_rescan_wq, &ub_rescan_work);
+	} else {
+		/* Within debounce window, work will be scheduled after debounce expires */
+		pr_debug("ub_enum_rescan: within debounce window, pending=%d\n",
+			 atomic_read(&ub_rescan_pending));
+	}
+}
+EXPORT_SYMBOL(ub_schedule_rescan);
+
+/* Initialize rescan mechanism */
+static int __init ub_rescan_init(void)
+{
+	ub_rescan_wq = alloc_workqueue("ub_rescan", WQ_MEM_RECLAIM, 0);
+	if (!ub_rescan_wq) {
+		pr_err("ub_enum_rescan: failed to create workqueue\n");
+		return -ENOMEM;
+	}
+
+	INIT_WORK(&ub_rescan_work, ub_rescan_worker);
+	ub_last_rescan_time = 0;
+
+	pr_info("ub_enum_rescan: initialized\n");
+	return 0;
+}
+
+/* Cleanup rescan mechanism */
+static void __exit ub_rescan_exit(void)
+{
+	if (ub_rescan_wq) {
+		destroy_workqueue(ub_rescan_wq);
+		ub_rescan_wq = NULL;
+	}
+}
+
+module_init(ub_rescan_init);
+module_exit(ub_rescan_exit);

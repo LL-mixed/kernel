@@ -39,6 +39,8 @@ bool ubase_dev_urma_supported(struct ubase_dev *udev)
 	case UBASE_DEV_ID_A_0_URMA_UE:
 	case UBASE_DEV_ID_A_0_UBOE_MUE:
 	case UBASE_DEV_ID_A_0_UBOE_UE:
+	case UBASE_DEV_ID_SIM_URMA_MUE:
+	case UBASE_DEV_ID_SIM_URMA_UE:
 		break;
 	default:
 		return false;
@@ -55,6 +57,7 @@ bool ubase_dev_unic_supported(struct ubase_dev *udev)
 	case UBASE_DEV_ID_K_0_URMA_MUE:
 	case UBASE_DEV_ID_A_0_URMA_MUE:
 	case UBASE_DEV_ID_A_0_UBOE_MUE:
+	case UBASE_DEV_ID_SIM_URMA_MUE:
 		break;
 	default:
 		return false;
@@ -247,14 +250,24 @@ static void ubase_del_one_adev(struct ubase_dev *udev, int idx)
 static int ubase_init_aux_devices(struct ubase_dev *udev)
 {
 	struct ubase_priv *priv = &udev->priv;
+	bool supported;
 	int i, ret;
 
 	for (i = 0; i < ARRAY_SIZE(ubase_adev_devices); i++) {
 		if (priv->uadev[i])
 			continue;
 
-		if (!ubase_adev_devices[i].is_supported ||
-		    !ubase_adev_devices[i].is_supported(udev))
+		if (!ubase_adev_devices[i].is_supported) {
+			ubase_info(udev, "skip auxiliary device(%s.%d): no support callback.\n",
+				   ubase_adev_devices[i].suffix, udev->dev_id);
+			continue;
+		}
+
+		supported = ubase_adev_devices[i].is_supported(udev);
+		ubase_info(udev, "auxiliary support check(%s.%d): %s\n",
+			   ubase_adev_devices[i].suffix, udev->dev_id,
+			   supported ? "supported" : "not supported");
+		if (!supported)
 			continue;
 
 		priv->uadev[i] = ubase_add_one_adev(udev, i);
@@ -830,7 +843,15 @@ static bool ubase_init_func_support(struct ubase_dev *udev, u32 support)
 
 int ubase_dev_init(struct ubase_dev *udev)
 {
+	bool sup_unic = ubase_dev_unic_supported(udev);
+	bool sup_udma = ubase_dev_udma_supported(udev);
+	bool sup_cdma = ubase_dev_cdma_supported(udev);
+	bool sup_pmu = ubase_dev_pmu_supported(udev);
 	int i, ret;
+
+	ubase_info(udev,
+		   "support summary: unic=%d udma=%d cdma=%d pmu=%d\n",
+		   sup_unic, sup_udma, sup_cdma, sup_pmu);
 
 	for (i = 0; i < ARRAY_SIZE(ubase_init_func_map); i++) {
 		if (!ubase_init_func_support(udev,
@@ -1012,6 +1033,8 @@ u32 ubase_get_hw_ver(struct auxiliary_device *adev)
 	case UBASE_DEV_ID_A_0_PMU_UE:
 	case UBASE_DEV_ID_A_0_UBOE_MUE:
 	case UBASE_DEV_ID_A_0_UBOE_UE:
+	case UBASE_DEV_ID_SIM_URMA_MUE:
+	case UBASE_DEV_ID_SIM_URMA_UE:
 		return UBASE_HW_VER_A_0;
 	default:
 		return UBASE_HW_VER_UNKNOWN;

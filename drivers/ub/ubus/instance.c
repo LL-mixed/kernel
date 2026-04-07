@@ -304,6 +304,9 @@ static int ub_register_bus_instance(struct ub_bus_instance *bi)
 	struct ub_bus_controller *ubc;
 	int ret, i = 0, count = 0;
 
+	pr_info("register_bi start guid=%pUb type=%u eid=%#x upi=%#x\n",
+		&info->guid, info->type, info->eid, info->upi);
+
 	ret = bi_duplicate_check(info);
 	if (ret)
 		return ret;
@@ -337,6 +340,8 @@ static int ub_register_bus_instance(struct ub_bus_instance *bi)
 	bi->registered = true;
 	list_add_tail(&bi->node, &ubi_list);
 	instance_count++;
+	pr_info("register_bi done guid=%pUb instance_count=%#x\n",
+		&info->guid, instance_count);
 	mutex_unlock(&ubi_list_mutex);
 	return 0;
 cfg_fail:
@@ -732,6 +737,10 @@ int ub_notify_bus_instance_handle(struct ub_bus_controller *ubc, bool flag,
 		else
 			ubc->cluster_bi = bi;
 
+		dev_info(&ubc->dev,
+			 "notify_bus_instance flag=0 reuse cluster_bi guid=%s\n",
+			 b_str);
+
 		return 0;
 	}
 
@@ -750,6 +759,10 @@ int ub_notify_bus_instance_handle(struct ub_bus_controller *ubc, bool flag,
 
 	if (!ubc->cluster_bi)
 		ubc->cluster_bi = ub_find_bus_instance(guid_match, guid);
+
+	dev_info(&ubc->dev,
+		 "notify_bus_instance flag=1 cluster_bi=%p guid=%s count=%#x\n",
+		 ubc->cluster_bi, b_str, instance_count);
 
 	return 0;
 }

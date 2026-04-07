@@ -492,7 +492,7 @@ int __ubase_hw_upgrade_ctx(struct ubase_dev *udev,
 			   struct ubase_mbx_attr *attr,
 			   struct ubase_cmd_mailbox *mailbox)
 {
-	return ubase_hw_upgrade_ctx_event(udev, attr, mailbox);
+	return ubase_hw_upgrade_ctx_poll(udev, attr, mailbox);
 }
 
 int __ubase_hw_upgrade_ctx_ex(struct ubase_dev *udev,
