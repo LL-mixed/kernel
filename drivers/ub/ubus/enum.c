@@ -1493,8 +1493,17 @@ int ub_enum_entities_active(struct list_head *dev_list)
 		pr_info("ub_enum_entities_active add done guid=%pUb\n",
 			&uent->guid.id);
 
-		if (is_ibus_controller(uent) && uent->ubc->cluster)
-			continue;
+		pr_info("ub_enum_entities_active: checking ICONTROLLER condition: is_ibus_controller=%d, uent->ubc->cluster=%d\n",
+			is_ibus_controller(uent), uent->ubc ? uent->ubc->cluster : -1);
+
+		if (is_ibus_controller(uent) && uent->ubc->cluster) {
+			/* Multi-entity simulation: allow FE0 to start for enumeration */
+			pr_info("ub_enum_entities_active: ICONTROLLER in cluster mode, ub_sim_multi_entity=%d\n",
+				ub_sim_multi_entity);
+			if (!ub_sim_multi_entity)
+				continue;
+			pr_info("ub_enum_entities_active: ICONTROLLER in multi-entity mode, allowing ub_start_ent\n");
+		}
 
 		pr_info("ub_enum_entities_active start_ent start guid=%pUb\n",
 			&uent->guid.id);
@@ -1608,7 +1617,7 @@ void ub_schedule_rescan(const char *reason)
 EXPORT_SYMBOL(ub_schedule_rescan);
 
 /* Initialize rescan mechanism */
-static int __init ub_rescan_init(void)
+int ub_rescan_init(void)
 {
 	ub_rescan_wq = alloc_workqueue("ub_rescan", WQ_MEM_RECLAIM, 0);
 	if (!ub_rescan_wq) {
@@ -1622,15 +1631,14 @@ static int __init ub_rescan_init(void)
 	pr_info("ub_enum_rescan: initialized\n");
 	return 0;
 }
+EXPORT_SYMBOL_GPL(ub_rescan_init);
 
 /* Cleanup rescan mechanism */
-static void __exit ub_rescan_exit(void)
+void ub_rescan_exit(void)
 {
 	if (ub_rescan_wq) {
 		destroy_workqueue(ub_rescan_wq);
 		ub_rescan_wq = NULL;
 	}
 }
-
-module_init(ub_rescan_init);
-module_exit(ub_rescan_exit);
+EXPORT_SYMBOL_GPL(ub_rescan_exit);
