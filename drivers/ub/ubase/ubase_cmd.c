@@ -463,25 +463,55 @@ static void ubase_cmd_setup_desc_by_inbuf(struct ubase_dev *udev,
 					  struct ubase_cmdq_desc *desc,
 					  u16 num)
 {
+	u32 first_copy, remain, tail_cap, tail_copy;
+
 	ubase_cmd_setup_basic_desc(&desc[0], in->opcode, in->is_read, num);
-	if (in->data) {
-		/* the size of the desc is the larger value between in and out.
-		 * the data_size is copied and filled into the subsequent desc.
-		 */
-		memcpy(desc->data, in->data, in->data_size);
-	}
+	if (!in->data || in->data_size == 0)
+		return;
+
+	first_copy = min_t(u32, in->data_size, UBASE_CMD_DATA_LENGTH);
+	memcpy(desc[0].data, in->data, first_copy);
+	remain = in->data_size - first_copy;
+	if (!remain)
+		return;
+
+	tail_cap = num > 1 ? (u32)(num - 1) * sizeof(struct ubase_cmdq_desc) : 0;
+	tail_copy = min_t(u32, remain, tail_cap);
+	if (unlikely(tail_copy < remain))
+		ubase_warn(udev,
+			   "input data truncated, in_size=%u copied=%u num=%u.\n",
+			   in->data_size, first_copy + tail_copy, num);
+
+	memcpy(&desc[1], (u8 *)in->data + first_copy, tail_copy);
 }
 
 static void ubase_cmd_setup_desc_by_outbuf(struct ubase_dev *udev,
 					   struct ubase_cmd_buf *out,
-					   struct ubase_cmdq_desc *desc)
+					   struct ubase_cmdq_desc *desc,
+					   u16 num)
 {
+	u32 first_copy, remain, tail_cap, tail_copy;
+
 	if (!out || out->data_size == 0)
 		return;
 
 	out->opcode = desc[0].opcode;
 	out->is_read = (desc[0].flag & UBASE_CMD_FLAG_WR) ? true : false;
-	memcpy(out->data, desc->data, out->data_size);
+
+	first_copy = min_t(u32, out->data_size, UBASE_CMD_DATA_LENGTH);
+	memcpy(out->data, desc[0].data, first_copy);
+	remain = out->data_size - first_copy;
+	if (!remain)
+		return;
+
+	tail_cap = num > 1 ? (u32)(num - 1) * sizeof(struct ubase_cmdq_desc) : 0;
+	tail_copy = min_t(u32, remain, tail_cap);
+	if (unlikely(tail_copy < remain))
+		ubase_warn(udev,
+			   "output data truncated, out_size=%u copied=%u num=%u.\n",
+			   out->data_size, first_copy + tail_copy, num);
+
+	memcpy((u8 *)out->data + first_copy, &desc[1], tail_copy);
 }
 
 static int ubase_cmd_send_inout_real(struct ubase_dev *udev,
@@ -509,7 +539,7 @@ static int ubase_cmd_send_inout_real(struct ubase_dev *udev,
 	if (ret)
 		goto err_send_cmd;
 
-	ubase_cmd_setup_desc_by_outbuf(udev, out, desc);
+	ubase_cmd_setup_desc_by_outbuf(udev, out, desc, num);
 
 err_send_cmd:
 	kfree(desc);
