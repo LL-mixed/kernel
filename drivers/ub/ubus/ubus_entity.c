@@ -430,7 +430,8 @@ void ub_entity_add(struct ub_entity *uent, void *ctx)
 
 	if (is_primary(uent)) {
 		ret = ub_ports_add(uent);
-		WARN_ON(ret);
+		if (ret)
+			ub_err(uent, "config ports failed, ret=%d\n", ret);
 	}
 
 	if (is_ibus_controller(uent)) {

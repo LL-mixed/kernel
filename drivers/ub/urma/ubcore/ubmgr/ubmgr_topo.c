@@ -78,6 +78,7 @@ int ubmgr_get_first_primary_eid(struct ubcore_device *dev,
 
 static LIST_HEAD(g_ubmgr_event_notifier_list);
 static DEFINE_SPINLOCK(g_ubmgr_notifier_list);
+#define UBMGR_MAX_EVENT_NOTIFIERS 16
 
 void ubmgr_register_event_notifier(struct ubmgr_event_notifier *notifier)
 {
@@ -101,13 +102,29 @@ static void ubmgr_notify_event(enum ubmgr_event_type event_type,
 			       void *event_data)
 {
 	struct ubmgr_event_notifier *iter;
+	struct ubmgr_event_notifier *notifiers[UBMGR_MAX_EVENT_NOTIFIERS];
+	uint32_t notifier_cnt = 0;
 	unsigned long flags;
+	uint32_t i;
 
 	spin_lock_irqsave(&g_ubmgr_notifier_list, flags);
 	list_for_each_entry(iter, &g_ubmgr_event_notifier_list, node) {
-		iter->cb(event_type, event_data, NULL);
+		if (notifier_cnt >= UBMGR_MAX_EVENT_NOTIFIERS) {
+			ubcore_log_warn("Notifier list overflow, drop redundant callbacks.\n");
+			break;
+		}
+		notifiers[notifier_cnt++] = iter;
 	}
 	spin_unlock_irqrestore(&g_ubmgr_notifier_list, flags);
+
+	/*
+	 * Run callbacks outside spinlock/irq-disabled region. Callback paths may
+	 * sleep (e.g. create jfc via mailbox), which is illegal in atomic context.
+	 */
+	for (i = 0; i < notifier_cnt; i++) {
+		iter = notifiers[i];
+		iter->cb(event_type, event_data, iter->priv);
+	}
 }
 
 void ubmgr_notify_mgmt_event(struct ubcore_mgmt_event *event)
