@@ -3373,6 +3373,7 @@ static int uburma_cmd_import_jetty(struct ubcore_device *ubc_dev,
 int uburma_unimport_jetty(struct uburma_file *file, bool async,
 			  int tjetty_handle)
 {
+	struct ubcore_tjetty *tjetty;
 	struct uburma_tjetty_uobj *tjetty_uobj;
 	struct uburma_uobj *uobj;
 	int ret;
@@ -3385,8 +3386,21 @@ int uburma_unimport_jetty(struct uburma_file *file, bool async,
 
 	uobj_get(uobj);
 	tjetty_uobj = container_of(uobj, struct uburma_tjetty_uobj, uobj);
+	tjetty = (struct ubcore_tjetty *)uobj->object;
 	tjetty_uobj->should_unimport_async = async;
 	ret = uobj_remove_commit(uobj);
+	if (ret == -EBUSY && !async && tjetty != NULL &&
+	    tjetty_uobj->jetty_uobj == NULL && tjetty->vtpn == NULL &&
+	    atomic_read(&tjetty->use_cnt) > 0) {
+		/* The explicit unbind path already detached the jetty from this
+		 * tjetty. If only a stale use_cnt remains, clear it and retry
+		 * once so the destroy path can complete cleanly.
+		 */
+		uburma_log_warn("retry unimport_jetty after clearing stale use_cnt=%d.\n",
+				atomic_read(&tjetty->use_cnt));
+		atomic_set(&tjetty->use_cnt, 0);
+		ret = uobj_remove_commit(uobj);
+	}
 	if (ret != 0)
 		uburma_log_err("ubcore_unimport_jetty_async failed.\n");
 
@@ -3529,12 +3543,10 @@ static int uburma_cmd_bind_jetty_ex(struct ubcore_device *ubc_dev,
 		uburma_log_info("tp_handle is null, exec ubcore_bind_jetty");
 		ret = ubcore_bind_jetty(jetty_uobj->object, tjetty, &udata);
 	} else {
-		uburma_log_info("tp_handle is null, exec ubcore_bind_jetty_ex");
+		uburma_log_info("tp_handle is not null, exec ubcore_bind_jetty_ex");
 		ret = ubcore_bind_jetty_ex(jetty_uobj->object, tjetty, &active_tp_cfg,
 			   &udata);
 	}
-	ret = ubcore_bind_jetty_ex(jetty_uobj->object, tjetty, &active_tp_cfg,
-				   &udata);
 	if (ret != 0) {
 		uburma_log_err("bind jetty failed.\n");
 		uburma_put_jetty_tjetty_objs(jetty_uobj, tjetty_uobj);
