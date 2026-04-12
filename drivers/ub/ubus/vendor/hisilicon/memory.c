@@ -7,6 +7,7 @@
 
 #include <ub/ubus/ubus.h>
 #include <ub/ubus/ub-mem-decoder.h>
+#include <linux/interrupt.h>
 
 #include "../../ubus.h"
 #include "../../msg.h"

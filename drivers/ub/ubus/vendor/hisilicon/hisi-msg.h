@@ -59,7 +59,8 @@ enum hi_task_type {
 
 enum hi_msgq_private_opcode {
 	EU_TABLE_CFG_CMD = 2,
-	GET_UBMEM_EVENT_CMD = 4
+	GET_UBMEM_EVENT_CMD = 4,
+	SIM_DEC_CTRL_CMD = 5,
 };
 
 enum hi_msgq_user {

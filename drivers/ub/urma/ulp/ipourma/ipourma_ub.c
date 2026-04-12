@@ -443,6 +443,16 @@ static inline int ipourma_get_eid_index(struct net_device *dev, union ubcore_eid
 	return -IPOURMA_SRC_IP_ADDR_EID_MISMATCH;
 }
 
+static inline int ipourma_get_first_valid_eid_index(struct ipourma_dev_priv *priv)
+{
+	for (u32 i = 0; i < IPOURMA_MAX_EID_CNT; i++) {
+		if (!eid_is_empty(&priv->eid_info[i].eid))
+			return (int)i;
+	}
+
+	return -1;
+}
+
 int ipourma_check_skb(struct net_device *dev, struct sk_buff *skb)
 {
 	struct ipourma_dev_priv *priv = netdev_priv(dev);
@@ -528,6 +538,7 @@ int ipourma_xmit(struct net_device *dev, struct sk_buff *skb,
 {
 	struct ipourma_tjetty_hash_node *tjetty_node = NULL;
 	struct ipourma_dev_priv *priv = netdev_priv(dev);
+	union ubcore_eid effective_src_eid;
 	struct ipourma_tx_buf *tx_req;
 	int ret = IPOURMA_OK;
 	unsigned long flags;
@@ -537,17 +548,21 @@ int ipourma_xmit(struct net_device *dev, struct sk_buff *skb,
 	ipourma_add_header(skb);
 	ret = ipourma_get_eid_index(dev, src_eid);
 	if (unlikely(ret == -IPOURMA_SRC_IP_ADDR_EID_MISMATCH)) {
+		int fallback_idx;
+
 		priv->runtime_stats.tx_stats.ip_eid_not_equal++;
-		netdev_dbg(dev, "%s:IP=0x%llx-0x%llx\n",
-			ipourma_err_desc(IPOURMA_SRC_IP_ADDR_EID_MISMATCH),
-			src_eid->in6.subnet_prefix,
-			src_eid->in6.interface_id);
-		return IPOURMA_SRC_IP_ADDR_EID_MISMATCH;
+		fallback_idx = ipourma_get_first_valid_eid_index(priv);
+		if (fallback_idx < 0)
+			return IPOURMA_SRC_IP_ADDR_EID_MISMATCH;
+		eid_idx = (u32)fallback_idx;
+	} else {
+		eid_idx = (u32)ret;
 	}
-	eid_idx = (u32)ret;
+	effective_src_eid = priv->eid_info[eid_idx].eid;
 	ret = IPOURMA_OK;
 	if (spin_trylock(&priv->tjetty_lru.lock)) {
-		tjetty_node = ipourma_locate_tjetty_node(&priv->tjetty_lru, src_eid, dst_eid, true);
+		tjetty_node = ipourma_locate_tjetty_node(&priv->tjetty_lru,
+							 &effective_src_eid, dst_eid, true);
 		spin_unlock(&priv->tjetty_lru.lock);
 	}
 

@@ -39,6 +39,16 @@ config UB_UBUS_USI
 		UnifiedBus instead of asserting a device IRQ pin.If you
 		don't know what to do here, say Y.
 
+config UB_UBUS_SIM_DECODER
+	default y
+	bool "UBUS Simulation Decoder for Cross-Node Memory Access"
+	depends on UB_UBUS
+	help
+		Enable simulation decoder driver for QEMU/UB dual-node
+		cross-node memory access. This driver provides decoder
+		configuration over simulation control channels.
+		Say 'Y' here for QEMU simulation environments.
+
 source "drivers/ub/ubus/vendor/Kconfig"
 
 endif

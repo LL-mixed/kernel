@@ -967,7 +967,14 @@ int ub_default_bus_instance_init(struct ub_entity *uent)
 
 	if (use_cluster) {
 		mutex_lock(&dynamic_mutex);
-		bi = ub_find_bus_instance(eid_match, &uent->user_eid);
+		/* For ICONTROLLER in cluster mode, use ubc->bi instead of cluster_bi */
+		if (is_ibus_controller(uent)) {
+			bi = uent->ubc->bi;
+			if (bi)
+				ub_bus_instance_get(bi);
+		} else {
+			bi = ub_find_bus_instance(eid_match, &uent->user_eid);
+		}
 	} else {
 		bi = uent->ubc->bi;
 	}

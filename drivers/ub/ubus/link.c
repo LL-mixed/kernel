@@ -322,6 +322,10 @@ void ublc_link_up_handle(struct ub_port *port)
 
 	port_link_state_change(port, r_port);
 	ub_info(uent, "port%u link up\n", port->index);
+
+	/* M2: Trigger rescan on link up for self-healing */
+	ub_schedule_rescan("link_up");
+
 out:
 	device_unlock(&uent->dev);
 link_up_notify:
@@ -403,6 +407,10 @@ void ublc_link_down_handle(struct ub_port *port)
 	device_unlock(&uent->dev);
 
 	ub_info(uent, "port%u link down\n", port->index);
+
+	/* M2: Trigger rescan on link down for self-healing */
+	ub_schedule_rescan("link_down");
+
 link_down_notify:
 	ub_notify_share_port(port, UB_PORT_EVENT_LINK_DOWN);
 }

@@ -36,6 +36,11 @@ EXPORT_SYMBOL_GPL(msg_retry);
 module_param(msg_retry, bool, 0444);
 MODULE_PARM_DESC(msg_retry, "support msg retry: 0(disable)");
 
+bool ub_sim_multi_entity = 1;
+EXPORT_SYMBOL_GPL(ub_sim_multi_entity);
+module_param(ub_sim_multi_entity, bool, 0444);
+MODULE_PARM_DESC(ub_sim_multi_entity, "Enable multi-entity simulation: 0=disable, 1=enable (default)");
+
 DECLARE_RWSEM(ub_bus_sem);
 
 #define UBC_GUID_VENDOR_SHIFT 48
@@ -776,12 +781,21 @@ EXPORT_SYMBOL_GPL(unregister_ub_manage_subsystem_ops);
 
 static int __init ubus_driver_init(void)
 {
+	int ret;
+
+	pr_info("ubus_driver_init: ub_sim_multi_entity=%d\n", ub_sim_multi_entity);
+
+	ret = ub_rescan_init();
+	if (ret)
+		return ret;
+
 	pr_info("Ubus driver init successfully.\n");
 	return 0;
 }
 
 static void __exit ubus_driver_exit(void)
 {
+	ub_rescan_exit();
 	pr_info("Ubus driver exit successfully.\n");
 }
 module_init(ubus_driver_init);

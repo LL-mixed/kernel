@@ -23,6 +23,11 @@
 #include "modpost.h"
 #include "../../include/linux/license.h"
 
+#ifdef __APPLE__
+/* Darwin headers may hide strsep() under strict C modes; declare explicitly. */
+extern char *strsep(char **, const char *);
+#endif
+
 static bool module_enabled;
 /* Are we using CONFIG_MODVERSIONS? */
 static bool modversions;

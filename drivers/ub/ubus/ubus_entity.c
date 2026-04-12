@@ -665,11 +665,20 @@ static int ub_obtain_entity_info(struct ub_entity *uent, u16 *mue_nums,
 	struct msg_info info = {};
 	int ret;
 
+	pr_info("ub_obtain_entity_info: enter guid=%pUb entity_idx=%u ub_sim_multi_entity=%d\n",
+		&uent->guid.id, uent->entity_idx, ub_sim_multi_entity);
+
 	if (is_ibus_controller(uent)) {
-		*mue_nums = 1;
-		map->start_entity_idx = 0;
-		map->end_entity_idx = 0;
-		return 0;
+		/* Legacy behavior: single entity (FE0 only) */
+		if (!ub_sim_multi_entity) {
+			*mue_nums = 1;
+			map->start_entity_idx = 0;
+			map->end_entity_idx = 0;
+			pr_info("ub_obtain_entity_info: ICONTROLLER in legacy single-entity mode\n");
+			return 0;
+		}
+		/* Multi-entity mode: send real UB_OBTAIN_ENTITY_INFO request */
+		pr_info("ub_obtain_entity_info: ICONTROLLER in multi-entity mode, sending real request\n");
 	}
 
 	ub_msg_pkt_header_init(&req_pkt.header, uent, 0,

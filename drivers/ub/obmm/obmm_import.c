@@ -6,6 +6,9 @@
 #include <linux/memory.h>
 #include <linux/io.h>
 #include <linux/sizes.h>
+#include <linux/export.h>
+#include <linux/mutex.h>
+#include <linux/string.h>
 
 #include <ub/ubus/ub-mem-decoder.h>
 #include <linux/numa_remote.h>
@@ -17,6 +20,157 @@
 #include "obmm_resource.h"
 #include "obmm_addr_check.h"
 #include "obmm_shm_dev.h"
+#include "obmm_sim_decoder.h"
+
+static DEFINE_MUTEX(g_obmm_sim_dec_cb_lock);
+static int (*g_obmm_import_cb)(void *);
+static int (*g_obmm_unimport_cb)(void *);
+
+int obmm_register_import_callback(int (*import_fn)(void *))
+{
+	int ret = 0;
+
+	if (!import_fn)
+		return -EINVAL;
+
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	if (g_obmm_import_cb)
+		ret = -EBUSY;
+	else
+		g_obmm_import_cb = import_fn;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(obmm_register_import_callback);
+
+int obmm_unregister_import_callback(void)
+{
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	g_obmm_import_cb = NULL;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(obmm_unregister_import_callback);
+
+int obmm_register_unimport_callback(int (*unimport_fn)(void *))
+{
+	int ret = 0;
+
+	if (!unimport_fn)
+		return -EINVAL;
+
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	if (g_obmm_unimport_cb)
+		ret = -EBUSY;
+	else
+		g_obmm_unimport_cb = unimport_fn;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(obmm_register_unimport_callback);
+
+int obmm_unregister_unimport_callback(void)
+{
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	g_obmm_unimport_cb = NULL;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(obmm_unregister_unimport_callback);
+
+static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
+					   u64 *remote_uba, u32 *token_value)
+{
+	const struct obmm_sim_dec_import_priv_v1 *priv;
+
+	*remote_uba = 0;
+	*token_value = 0;
+
+	if (region->priv_len < sizeof(*priv))
+		return;
+
+	priv = (const struct obmm_sim_dec_import_priv_v1 *)region->priv;
+	if (priv->magic != OBMM_SIM_DEC_PRIV_MAGIC ||
+	    priv->version != OBMM_SIM_DEC_PRIV_VER_1)
+		return;
+	if (priv->len < sizeof(*priv))
+		return;
+
+	*remote_uba = priv->remote_uba;
+	*token_value = priv->token_value;
+}
+
+static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
+{
+	struct obmm_sim_dec_import_info info = { 0 };
+	int (*cb)(void *) = NULL;
+	u64 remote_uba;
+	u32 token_value;
+	int ret;
+
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	cb = g_obmm_import_cb;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	if (!cb)
+		return 0;
+
+	obmm_sim_dec_parse_import_priv(&i_reg->region, &remote_uba, &token_value);
+	if (!remote_uba) {
+		pr_err("sim decoder map requires remote_uba in import priv.\n");
+		return -EINVAL;
+	}
+
+	info.local_pa = i_reg->pa;
+	info.size = i_reg->region.mem_size;
+	info.remote_uba = remote_uba;
+	info.token_id = i_reg->tokenid;
+	info.token_value = token_value;
+	info.scna = i_reg->scna;
+	info.dcna = i_reg->dcna;
+	memcpy(info.seid, i_reg->seid, sizeof(info.seid));
+	memcpy(info.deid, i_reg->deid, sizeof(info.deid));
+	info.upi = 0;
+	info.src_eid = 0;
+
+	ret = cb(&info);
+	if (ret) {
+		pr_err("sim decoder map callback failed: %pe.\n", ERR_PTR(ret));
+		return ret;
+	}
+
+	i_reg->sim_dec_map_id = info.map_id;
+	i_reg->sim_dec_mapped = true;
+	return 0;
+}
+
+static int obmm_sim_dec_unmap_import(struct obmm_import_region *i_reg)
+{
+	struct obmm_sim_dec_unimport_info info;
+	int (*cb)(void *) = NULL;
+	int ret;
+
+	if (!i_reg->sim_dec_mapped)
+		return 0;
+
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	cb = g_obmm_unimport_cb;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	if (!cb)
+		return 0;
+
+	info.map_id = i_reg->sim_dec_map_id;
+	info.scna = i_reg->scna;
+	ret = cb(&info);
+	if (ret) {
+		pr_err("sim decoder unmap callback failed map_id=%#llx ret=%pe.\n",
+		       info.map_id, ERR_PTR(ret));
+		return ret;
+	}
+
+	i_reg->sim_dec_mapped = false;
+	i_reg->sim_dec_map_id = 0;
+	return 0;
+}
 
 static void set_import_region_datapath(const struct obmm_import_region *i_reg,
 				       struct obmm_datapath *datapath)
@@ -287,6 +441,10 @@ static int release_import_memory(struct obmm_import_region *i_reg)
 {
 	int ret, rollback_ret, old_numa_id;
 
+	ret = obmm_sim_dec_unmap_import(i_reg);
+	if (ret)
+		return ret;
+
 	ret = teardown_iomem_resource(i_reg);
 	if (ret)
 		return ret;
@@ -338,6 +496,12 @@ err_teardown_numa:
 	rollback_ret = setup_iomem_resource(i_reg);
 	if (rollback_ret) {
 		pr_err("failed to restore iomem resource on rollback, ret=%pe.\n",
+		       ERR_PTR(rollback_ret));
+		return -ENOTRECOVERABLE;
+	}
+	rollback_ret = obmm_sim_dec_map_import(i_reg);
+	if (rollback_ret) {
+		pr_err("failed to restore sim decoder map on rollback, ret=%pe.\n",
 		       ERR_PTR(rollback_ret));
 		return -ENOTRECOVERABLE;
 	}
@@ -429,7 +593,7 @@ static int init_import_region_from_cmd(const struct obmm_cmd_import *param,
 		return ret;
 
 	i_reg->pa = param->addr;
-
+	i_reg->tokenid = param->tokenid;
 	i_reg->dcna = param->dcna;
 	i_reg->scna = param->scna;
 	memcpy(i_reg->deid, param->deid, sizeof(i_reg->deid));
@@ -447,6 +611,8 @@ static int init_import_region_from_cmd(const struct obmm_cmd_import *param,
 	if (config_numa_dist && !is_numa_base_dist_valid(param->base_dist))
 		return -EINVAL;
 	i_reg->base_dist = param->base_dist;
+	i_reg->sim_dec_mapped = false;
+	i_reg->sim_dec_map_id = 0;
 
 	/* NOTE: this function initializes the data structure but not the device */
 	return 0;
@@ -490,6 +656,12 @@ int obmm_import(struct obmm_cmd_import *cmd_import)
 		goto out_region_uninit;
 	}
 
+	retval = obmm_sim_dec_map_import(i_reg);
+	if (retval) {
+		pr_err("Failed to map sim decoder: ret=%pe\n", ERR_PTR(retval));
+		goto out_release_memory;
+	}
+
 	numa_id = i_reg->numa_id;
 	mem_id = (uint64_t)i_reg->region.regionid;
 
@@ -508,6 +680,10 @@ int obmm_import(struct obmm_cmd_import *cmd_import)
 	return 0;
 
 out_release_memory:
+	rollback_ret = obmm_sim_dec_unmap_import(i_reg);
+	if (rollback_ret)
+		pr_warn("Failed to unmap sim decoder on rollback, ret=%pe.\n",
+			ERR_PTR(rollback_ret));
 	rollback_ret = release_import_memory(i_reg);
 	if (rollback_ret)
 		pr_warn("Failed to release import memory on rollback, ret=%pe.\n",

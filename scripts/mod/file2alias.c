@@ -40,10 +40,6 @@ typedef struct {
 	__u8 b[16];
 } guid_t;
 
-typedef struct {
-	__u8 b[16];
-} uuid_t;
-
 #define	UUID_STRING_LEN		36
 
 /* MEI UUID type, don't use anywhere else */
@@ -1346,12 +1342,13 @@ static int do_typec_entry(const char *filename, void *symval, char *alias)
 static int do_tee_entry(const char *filename, void *symval, char *alias)
 {
 	DEF_FIELD_ADDR(symval, tee_client_device_id, uuid);
+	const unsigned char *uuid_bytes = (const unsigned char *)uuid;
 
 	sprintf(alias, "tee:%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-		uuid->b[0], uuid->b[1], uuid->b[2], uuid->b[3], uuid->b[4],
-		uuid->b[5], uuid->b[6], uuid->b[7], uuid->b[8], uuid->b[9],
-		uuid->b[10], uuid->b[11], uuid->b[12], uuid->b[13], uuid->b[14],
-		uuid->b[15]);
+		uuid_bytes[0], uuid_bytes[1], uuid_bytes[2], uuid_bytes[3], uuid_bytes[4],
+		uuid_bytes[5], uuid_bytes[6], uuid_bytes[7], uuid_bytes[8], uuid_bytes[9],
+		uuid_bytes[10], uuid_bytes[11], uuid_bytes[12], uuid_bytes[13], uuid_bytes[14],
+		uuid_bytes[15]);
 
 	add_wildcard(alias);
 	return 1;

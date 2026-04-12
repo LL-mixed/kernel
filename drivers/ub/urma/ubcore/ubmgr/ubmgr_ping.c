@@ -32,6 +32,7 @@ struct ubcore_client g_ping_client;
 
 struct ubmgr_ping_ctx {
 	void *buf;
+	bool removing;
 	struct mutex init_mutex;
 	struct ubcore_target_seg *seg;
 	struct ubcore_jfc *send_jfc;
@@ -42,6 +43,18 @@ struct ubmgr_ping_ctx {
 	struct hlist_head tjetty_hlist[PING_TJETTY_HASH_SIZE];
 	spinlock_t tjetty_lock;
 };
+
+static inline void *ping_ctx_get_buf(struct ubmgr_ping_ctx *ctx)
+{
+	/*
+	 * Prefer the segment VA when available because it is the canonical
+	 * buffer address used for posted WRs.
+	 */
+	if (ctx->seg != NULL && ctx->seg->seg.ubva.va != 0)
+		return (void *)(uintptr_t)ctx->seg->seg.ubva.va;
+
+	return ctx->buf;
+}
 
 /* Hash func */
 struct ubmgr_ping_tjetty_entry {
@@ -381,6 +394,8 @@ static int ping_wq_queue_work(struct ubcore_jfc *jfc,
 	ctx = ubcore_get_client_ctx_data(jfc->ub_dev, &g_ping_client);
 	if (IS_ERR_OR_NULL(ctx))
 		return -EINVAL;
+	if (READ_ONCE(ctx->removing))
+		return -ESHUTDOWN;
 
 	struct ubmgr_ping_work *pwork;
 
@@ -565,12 +580,26 @@ unregister_seg:
 
 static void ping_ctx_uninit_jetty(struct ubmgr_ping_ctx *ctx)
 {
-	ubcore_delete_jetty(ctx->jetty);
-	ubcore_delete_jfr(ctx->jfr);
-	ubcore_delete_jfc(ctx->recv_jfc);
-	ubcore_delete_jfc(ctx->send_jfc);
-	ubcore_unregister_seg(ctx->seg);
-	kfree(ctx->buf);
+	if (ctx->jetty != NULL) {
+		ubcore_delete_jetty(ctx->jetty);
+		ctx->jetty = NULL;
+	}
+	if (ctx->jfr != NULL) {
+		ubcore_delete_jfr(ctx->jfr);
+		ctx->jfr = NULL;
+	}
+	if (ctx->recv_jfc != NULL) {
+		ubcore_delete_jfc(ctx->recv_jfc);
+		ctx->recv_jfc = NULL;
+	}
+	if (ctx->send_jfc != NULL) {
+		ubcore_delete_jfc(ctx->send_jfc);
+		ctx->send_jfc = NULL;
+	}
+	if (ctx->seg != NULL) {
+		ubcore_unregister_seg(ctx->seg);
+		ctx->seg = NULL;
+	}
 }
 
 static int ping_on_add_device(struct ubcore_device *dev)
@@ -631,9 +660,17 @@ free_ctx:
 static void ping_on_remove_device(struct ubcore_device *dev, void *client_ctx)
 {
 	struct ubmgr_ping_ctx *ping_ctx = client_ctx;
+	void *buf;
 
 	if (ping_ctx == NULL)
 		return;
+	if (READ_ONCE(ping_ctx->removing))
+		return;
+
+	WRITE_ONCE(ping_ctx->removing, true);
+	/* Prevent new callbacks from obtaining this context. */
+	ubcore_set_client_ctx_data(dev, &g_ping_client, NULL);
+	buf = ping_ctx_get_buf(ping_ctx);
 
 	// Ensure all work are completed and no more work will be queued
 	drain_workqueue(ping_ctx->wq);
@@ -643,8 +680,10 @@ static void ping_on_remove_device(struct ubcore_device *dev, void *client_ctx)
 	ping_ctx_uninit_jetty(ping_ctx);
 
 	destroy_workqueue(ping_ctx->wq);
+	ping_ctx->wq = NULL;
 	mutex_destroy(&ping_ctx->init_mutex);
-	kfree(ping_ctx->buf);
+	kfree(buf);
+	ping_ctx->buf = NULL;
 	kfree(ping_ctx);
 }
 
@@ -669,6 +708,8 @@ static void ping_on_event(enum ubmgr_event_type event_type, void *event_data,
 			       dev->dev_name);
 		return;
 	}
+	if (READ_ONCE(ping_ctx->removing))
+		return;
 
 	mutex_lock(&ping_ctx->init_mutex);
 	if (ping_ctx->jetty != NULL) {

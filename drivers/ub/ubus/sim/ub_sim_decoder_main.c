@@ -1,0 +1,154 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
+/*
+ * Copyright (c) HiSilicon Technologies Co., Ltd. 2025. All rights reserved.
+ *
+ * UB Simulation Decoder Main Module
+ * Top-level driver with OBMM integration
+ */
+
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/init.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include "ub_sim_decoder.h"
+#include "../../obmm/obmm_sim_decoder.h"
+
+static struct ub_sim_decoder *g_decoder;
+
+/*
+ * OBMM Import Callback
+ * Called by OBMM when user imports remote memory
+ */
+static int ub_sim_decoder_obmm_import(void *import_info)
+{
+	struct obmm_sim_dec_import_info *info = import_info;
+	struct sim_dec_map_req req = { 0 };
+	u64 map_id = 0;
+	int ret;
+
+	if (!info || !g_decoder || !g_decoder->enabled)
+		return -EINVAL;
+
+	req.local_pa = info->local_pa;
+	req.size = info->size;
+	req.remote_uba = info->remote_uba;
+	req.token_id = info->token_id;
+	req.token_value = info->token_value;
+	req.scna = info->scna;
+	req.dcna = info->dcna;
+	memcpy(req.seid, info->seid, sizeof(req.seid));
+	memcpy(req.deid, info->deid, sizeof(req.deid));
+	req.upi = info->upi;
+	req.src_eid = info->src_eid;
+
+	ret = ub_sim_decoder_map(&g_decoder->service, &req, &map_id);
+	if (ret) {
+		pr_err("UB SIM Decoder: OBMM import map failed: %pe\n",
+		       ERR_PTR(ret));
+		return ret;
+	}
+
+	info->map_id = map_id;
+	pr_info("UB SIM Decoder: OBMM import mapped map_id=%#llx\n", map_id);
+	return 0;
+}
+
+static int ub_sim_decoder_obmm_unimport(void *unimport_info)
+{
+	struct obmm_sim_dec_unimport_info *info = unimport_info;
+	int ret;
+
+	if (!info || !g_decoder || !g_decoder->enabled)
+		return -EINVAL;
+
+	ret = ub_sim_decoder_unmap(&g_decoder->service, info->map_id);
+	if (ret) {
+		pr_err("UB SIM Decoder: OBMM unimport unmap failed map_id=%#llx: %pe\n",
+		       info->map_id, ERR_PTR(ret));
+		return ret;
+	}
+
+	pr_info("UB SIM Decoder: OBMM unimport unmapped map_id=%#llx\n",
+		info->map_id);
+	return 0;
+}
+
+static int ub_sim_decoder_init(void)
+{
+	int ret;
+
+	g_decoder = kzalloc(sizeof(*g_decoder), GFP_KERNEL);
+	if (!g_decoder)
+		return -ENOMEM;
+	g_ub_sim_decoder = g_decoder;
+
+	/* Initialize backend type from module param */
+	g_decoder->backend_type = UB_SIM_DEC_BACKEND_SIM;
+
+	/* Initialize service layer */
+	ret = ub_sim_decoder_service_init(&g_decoder->service);
+	if (ret < 0) {
+		pr_err("UB SIM Decoder: failed to init service\n");
+		goto err_free;
+	}
+
+	/* Initialize control adapter */
+	ret = ub_sim_dec_ctrl_adapter_init(&g_decoder->adapter,
+					   &g_decoder->service);
+	if (ret < 0) {
+		pr_err("UB SIM Decoder: failed to init adapter\n");
+		goto err_service;
+	}
+
+	/* Register OBMM callback */
+	ret = obmm_register_import_callback(ub_sim_decoder_obmm_import);
+	if (ret < 0) {
+		pr_warn("UB SIM Decoder: failed to register OBMM callback (%d)\n",
+			ret);
+	}
+	ret = obmm_register_unimport_callback(ub_sim_decoder_obmm_unimport);
+	if (ret < 0)
+		pr_warn("UB SIM Decoder: failed to register OBMM unimport callback (%d)\n",
+			ret);
+
+	g_decoder->enabled = true;
+	pr_info("UB SIM Decoder: module loaded\n");
+
+	return 0;
+
+err_service:
+	ub_sim_decoder_service_exit(&g_decoder->service);
+err_free:
+	g_ub_sim_decoder = NULL;
+	kfree(g_decoder);
+	g_decoder = NULL;
+	return ret;
+}
+
+static void ub_sim_decoder_exit(void)
+{
+	if (!g_decoder)
+		return;
+
+	obmm_unregister_unimport_callback();
+	obmm_unregister_import_callback();
+
+	ub_sim_dec_ctrl_adapter_exit(&g_decoder->adapter);
+	ub_sim_decoder_service_exit(&g_decoder->service);
+
+	g_ub_sim_decoder = NULL;
+	kfree(g_decoder);
+	g_decoder = NULL;
+
+	pr_info("UB SIM Decoder: module unloaded\n");
+}
+
+module_init(ub_sim_decoder_init);
+module_exit(ub_sim_decoder_exit);
+
+MODULE_LICENSE("GPL v2");
+MODULE_AUTHOR("HiSilicon");
+MODULE_DESCRIPTION("UB Simulation Decoder Driver");
+MODULE_VERSION("1.0");

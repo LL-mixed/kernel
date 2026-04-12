@@ -54,7 +54,8 @@ int ub_eid_alloc(struct ub_entity *uent)
 		dev = &uent->ubc->dev;
 		if (uent->ubc->cluster_bi && uent->ubc->cluster_bi->info.eid) {
 			eid = uent->ubc->cluster_bi->info.eid;
-			pr_info("ub_eid_alloc use cluster_bi eid=%#x\n", eid);
+			uent->user_eid = eid;  /* Fix: Also set user_eid for cluster mode matching */
+			pr_info("ub_eid_alloc use cluster_bi eid=%#x user_eid=%#x\n", eid, uent->user_eid);
 			dev_info(dev, "use cluster_bi eid=%#x\n", eid);
 		} else if (uent->user_eid) {
 			eid = uent->user_eid;
@@ -76,7 +77,8 @@ int ub_eid_alloc(struct ub_entity *uent)
 		}
 
 		uent->eid = eid;
-		pr_info("ub_eid_alloc exit cluster eid=%#x\n", uent->eid);
+		uent->user_eid = eid;  /* Fix: Set user_eid for cluster mode matching */
+		pr_info("ub_eid_alloc exit cluster eid=%#x user_eid=%#x\n", uent->eid, uent->user_eid);
 		return 0;
 	}
 

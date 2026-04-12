@@ -7,6 +7,10 @@
 #define __UBUS_ENTITY_H__
 
 extern bool entity_flex_en;
+extern bool ub_sim_multi_entity;
+
+int ub_rescan_init(void);
+void ub_rescan_exit(void);
 
 struct ub_entity *ub_alloc_ent(void);
 int ub_setup_ent(struct ub_entity *uent);

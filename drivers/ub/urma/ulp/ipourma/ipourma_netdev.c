@@ -413,8 +413,8 @@ static netdev_tx_t ipourma_start_xmit(struct sk_buff *skb, struct net_device *de
 	proto = ntohs(skb->protocol);
 
 	pr_skb_head_plus_linear(skb, "start xmit");
-	/* accept IPv4 and IPv6 for QEMU simulation */
-	if (proto != ETH_P_IPV6 && proto != ETH_P_IP) {
+	/* accept IPv4/IPv6 and ARP for QEMU simulation */
+	if (proto != ETH_P_IPV6 && proto != ETH_P_IP && proto != ETH_P_ARP) {
 		priv->runtime_stats.tx_stats.not_ipv6_proto++;
 		netdev_dbg(dev, "Unsupported ether type: %u", proto);
 		goto drop_out;

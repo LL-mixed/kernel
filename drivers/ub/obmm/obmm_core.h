@@ -150,6 +150,7 @@ static inline bool region_fast_alloc(const struct obmm_region *reg)
 struct obmm_import_region {
 	struct obmm_region region;
 
+	u32 tokenid;
 	u32 dcna;
 	u32 scna;
 
@@ -170,6 +171,9 @@ struct obmm_import_region {
 	void *preimport_handle;
 	u8 deid[16];
 	u8 seid[16];
+
+	bool sim_dec_mapped;
+	u64 sim_dec_map_id;
 };
 
 struct mem_description_pid {
