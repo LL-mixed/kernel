@@ -3,6 +3,7 @@
 
 #define dev_fmt(fmt) "UDMA: " fmt
 
+#include <linux/bitmap.h>
 #include <linux/dma-mapping.h>
 #include <linux/iommu.h>
 #include <uapi/ub/urma/udma/udma_abi.h>
@@ -46,6 +47,30 @@ static int udma_verify_jfr_param(struct udma_dev *dev,
 	}
 
 	return 0;
+}
+
+static int udma_alloc_jfr_tracking(struct udma_jfr *jfr)
+{
+	if (jfr->posted_idx != NULL)
+		return 0;
+
+	jfr->posted_idx = bitmap_zalloc(jfr->wqe_cnt, GFP_KERNEL);
+	if (jfr->posted_idx == NULL)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void udma_reset_jfr_tracking(struct udma_jfr *jfr)
+{
+	if (jfr->posted_idx != NULL)
+		bitmap_zero(jfr->posted_idx, jfr->wqe_cnt);
+}
+
+static void udma_free_jfr_tracking(struct udma_jfr *jfr)
+{
+	bitmap_free(jfr->posted_idx);
+	jfr->posted_idx = NULL;
 }
 
 static int udma_get_k_jfr_buf(struct udma_dev *dev, struct udma_jfr *jfr)
@@ -253,6 +278,7 @@ static void udma_put_jfr_buf(struct udma_dev *dev, struct udma_jfr *jfr, bool di
 		udma_free_normal_buf(dev, size, &jfr->idx_que.buf);
 		udma_destroy_udma_table(dev, &jfr->idx_que.jfr_idx_table, "JFR_IDX");
 
+		udma_free_jfr_tracking(jfr);
 		kfree(jfr->rq.wrid);
 		return;
 	}
@@ -260,8 +286,10 @@ static void udma_put_jfr_buf(struct udma_dev *dev, struct udma_jfr *jfr, bool di
 	if (likely(jfr->jfr_sleep_buf.db_addr))
 		udma_unpin_sw_db(jfr->udma_ctx, &jfr->jfr_sleep_buf, dirty);
 
-	if (jfr->buff_non_pin)
+	if (jfr->buff_non_pin) {
+		udma_free_jfr_tracking(jfr);
 		return;
+	}
 
 	udma_put_sw_db(jfr->udma_ctx, jfr->sw_db.db_addr);
 	udma_put_map_page_priv(jfr->udma_ctx, jfr->idx_que.buf.page_priv);
@@ -269,6 +297,8 @@ static void udma_put_jfr_buf(struct udma_dev *dev, struct udma_jfr *jfr, bool di
 		udma_free_u_hugepage(jfr->udma_ctx, jfr->rq.buf.addr);
 	else
 		udma_put_map_page_priv(jfr->udma_ctx, jfr->rq.buf.page_priv);
+
+	udma_free_jfr_tracking(jfr);
 }
 
 static enum udma_rx_limit_wl to_udma_limit_wl(uint32_t rx_threshold)
@@ -342,6 +372,7 @@ static void udma_reset_sw_k_jfr_queue(struct udma_jfr *jfr)
 {
 	ida_destroy(&jfr->idx_que.jfr_idx_table.ida_table.ida);
 	ida_init(&jfr->idx_que.jfr_idx_table.ida_table.ida);
+	udma_reset_jfr_tracking(jfr);
 	jfr->rq.pi = 0;
 	jfr->rq.ci = 0;
 	*jfr->sw_db.db_record = 0;
@@ -468,6 +499,12 @@ struct ubcore_jfr *udma_create_jfr(struct ubcore_device *dev,
 	if (ret)
 		goto err_get_jfr_buf;
 
+	ret = udma_alloc_jfr_tracking(udma_jfr);
+	if (ret) {
+		dev_err(udma_dev->dev, "failed to alloc jfr tracking bitmap.\n");
+		goto err_alloc_jfr_tracking;
+	}
+
 	ret = xa_err(xa_store(&udma_dev->jfr_table.xa, udma_jfr->rq.id,
 			      udma_jfr, GFP_KERNEL));
 	if (ret) {
@@ -494,6 +531,7 @@ err_hw_init_jfrc:
 	xa_erase(&udma_dev->jfr_table.xa, udma_jfr->rq.id);
 err_xa_store:
 	udma_put_jfr_buf(udma_dev, udma_jfr, false);
+err_alloc_jfr_tracking:
 err_get_jfr_buf:
 	udma_id_free(&udma_dev->jfr_table.ida_table, udma_jfr->rq.id);
 err_alloc_jfr_id:
@@ -929,10 +967,9 @@ static int post_recv_one(struct udma_dev *dev, struct udma_jfr *jfr,
 	wqe = get_buf_entry(&jfr->rq.buf, wqe_idx);
 
 	fill_recv_sge_to_wqe(wr, wqe, jfr->max_sge);
-
-	fill_wqe_idx(jfr, wqe_idx);
-
 	jfr->rq.wrid[wqe_idx] = wr->user_ctx;
+	__set_bit(wqe_idx, jfr->posted_idx);
+	fill_wqe_idx(jfr, wqe_idx);
 
 	return ret;
 }
@@ -1248,6 +1285,12 @@ int udma_active_jfr(struct ubcore_jfr *jfr, struct ubcore_udata *udata)
 	if (ret)
 		goto err_get_jfr_buf;
 
+	ret = udma_alloc_jfr_tracking(udma_jfr);
+	if (ret) {
+		dev_err(udma_dev->dev, "failed to alloc jfr tracking bitmap.\n");
+		goto err_alloc_jfr_tracking;
+	}
+
 #ifdef CONFIG_V121
 	if (udma_bind_jfc(udma_dev, cfg->jfc->id, UDMA_RECV_JFC))
 		goto err_xa_store;
@@ -1281,6 +1324,7 @@ err_hw_init_jfrc:
 	xa_erase(&udma_dev->jfr_table.xa, udma_jfr->rq.id);
 err_xa_store:
 	udma_put_jfr_buf(udma_dev, udma_jfr, false);
+err_alloc_jfr_tracking:
 err_get_jfr_buf:
 	udma_id_free(&udma_dev->jfr_table.ida_table, udma_jfr->rq.id);
 

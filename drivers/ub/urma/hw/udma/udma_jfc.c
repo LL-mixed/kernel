@@ -1314,7 +1314,12 @@ static bool udma_update_jfr_idx(struct udma_dev *dev,
 
 	queue = &jfr->rq;
 	entry_idx = cqe->entry_idx;
-	cr->user_ctx = queue->wrid[entry_idx & (queue->buf.entry_cnt - (uint32_t)1)];
+	if (unlikely(entry_idx >= queue->buf.entry_cnt)) {
+		dev_warn_ratelimited(dev->dev,
+				     "invalid recv cqe entry_idx=%u depth=%u jfr_id=%u.\n",
+				     entry_idx, queue->buf.entry_cnt, jfr->rq.id);
+		return true;
+	}
 
 	if (!is_clean && cqe->inline_en)
 		udma_handle_inline_cqe(cqe, opcode, queue, cr);
@@ -1322,6 +1327,16 @@ static bool udma_update_jfr_idx(struct udma_dev *dev,
 	if (!jfr->ubcore_jfr.jfr_cfg.flag.bs.lock_free)
 		spin_lock(&jfr->lock);
 
+	if (unlikely(!test_and_clear_bit(entry_idx, jfr->posted_idx))) {
+		if (!jfr->ubcore_jfr.jfr_cfg.flag.bs.lock_free)
+			spin_unlock(&jfr->lock);
+		dev_warn_ratelimited(dev->dev,
+				     "drop stale recv cqe entry_idx=%u jfr_id=%u clean=%d.\n",
+				     entry_idx, jfr->rq.id, is_clean);
+		return true;
+	}
+
+	cr->user_ctx = queue->wrid[entry_idx & (queue->buf.entry_cnt - (uint32_t)1)];
 	udma_id_free(&jfr->idx_que.jfr_idx_table.ida_table, entry_idx);
 	queue->ci++;
 

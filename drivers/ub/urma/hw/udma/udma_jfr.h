@@ -84,6 +84,7 @@ struct udma_jfr {
 	struct ubcore_jfr ubcore_jfr;
 	struct udma_jetty_queue rq;
 	struct udma_jfr_idx_que idx_que;
+	unsigned long *posted_idx;
 	struct udma_sw_db sw_db;
 	struct udma_sw_db jfr_sleep_buf;
 	struct udma_context *udma_ctx;
