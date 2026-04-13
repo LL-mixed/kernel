@@ -1,11 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-only
 config OBMM
-	default n
+	default y
 	tristate "OBMM(ownership based memory management) Support"
 	depends on UB_UMMU_CORE && UB_UBUS && HISI_SOC_CACHE
-	select NUMA_REMOTE
 	select PFN_RANGE_ALLOC
-	select RECLAIM_NOTIFY
 	help
 	  OBMM (Ownership Based Memory Management) provides a framework for
 	  managing shared memory regions across multiple systems.

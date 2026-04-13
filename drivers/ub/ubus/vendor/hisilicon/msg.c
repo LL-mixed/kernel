@@ -876,6 +876,7 @@ queue_init_fail:
 	kfree(hmd);
 	return ret;
 }
+EXPORT_SYMBOL_GPL(hi_message_private);
 
 void hi_msg_device_remove(struct ub_bus_controller *ubc)
 {

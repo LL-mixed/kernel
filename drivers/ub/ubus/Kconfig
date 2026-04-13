@@ -18,14 +18,14 @@ menuconfig UB_UBUS
 if UB_UBUS
 
 config UB_UBUS_BUS
-	default n
+	default y
 	tristate "UB Bus Driver Modular Section"
 	depends on UB_UBUS
 	help
-	  This option enables the modular part of the UB bus driver,
-	  which works in conjunction with the built-in part to implement
-	  the UB bus device management functionality.
-	  Say 'M' here unless you know what you are doing.
+	  This option controls the ubus core object that complements the
+	  built-in ubus support under drivers/ub/ubus/.
+	  For QEMU/simulation environments, keep this enabled as built-in.
+	  Select 'M' only when you intentionally need a loadable split.
 
 config UB_UBUS_USI
 	default n
@@ -42,7 +42,7 @@ config UB_UBUS_USI
 config UB_UBUS_SIM_DECODER
 	default y
 	bool "UBUS Simulation Decoder for Cross-Node Memory Access"
-	depends on UB_UBUS
+	depends on UB_UBUS && UB_UBUS_BUS && OBMM
 	help
 		Enable simulation decoder driver for QEMU/UB dual-node
 		cross-node memory access. This driver provides decoder

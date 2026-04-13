@@ -926,6 +926,7 @@ void ub_entity_put(struct ub_entity *uent);
  */
 int ub_get_bus_controller(struct ub_entity *uents[], unsigned int max_num,
 		      unsigned int *real_num);
+int ub_manage_subsystem_try_probe(void);
 
 /**
  * ub_put_bus_controller() - Free the ub bus controller device list.

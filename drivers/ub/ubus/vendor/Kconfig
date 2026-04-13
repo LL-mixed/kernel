@@ -7,12 +7,11 @@ config UB_HISI_UBUS
 	tristate "hisilicon ubus"
 	depends on UB_UBUS_BUS
 	depends on UB_UBUS_USI
-	default n
+	default y
 	help
-	  This option enables the modular part of the hisilicon ubus driver.
-	  If you choose the ubus function provided by HiSilicon say y
-	  and it will be accessible from within Linux.
-	  To compile this driver as a module, choose M here.
-	  Say 'M' here unless you know what you are doing
+	  This option enables the HiSilicon ubus vendor implementation.
+	  For QEMU/simulation environments that rely on vendor private control
+	  messages, keep this enabled as built-in.
+	  Select 'M' only when you intentionally want a loadable split.
 
 endmenu

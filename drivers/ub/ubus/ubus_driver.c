@@ -48,6 +48,7 @@ DECLARE_RWSEM(ub_bus_sem);
 
 static DEFINE_MUTEX(manage_subsystem_ops_mutex);
 static const struct ub_manage_subsystem_ops *manage_subsystem_ops;
+static bool ub_host_started;
 
 const struct ub_manage_subsystem_ops *get_ub_manage_subsystem_ops(void)
 {
@@ -722,11 +723,56 @@ static void ub_host_remove(void)
 	ub_bus_controllers_remove();
 	unregister_ub_cfg_ops();
 	ub_bus_type_uninit();
+	ub_host_started = false;
 }
+
+static bool ub_manage_subsystem_ops_match_any_controller(const struct ub_manage_subsystem_ops *ops)
+{
+	struct ub_bus_controller *ubc;
+
+	if (!ops)
+		return false;
+
+	list_for_each_entry(ubc, &ubc_list, node) {
+		if (((ubc->attr.ubc_guid_high >> UBC_GUID_VENDOR_SHIFT) &
+		    UBC_GUID_VENDOR_MASK) == ops->vendor)
+			return true;
+	}
+
+	return false;
+}
+
+static int ub_manage_subsystem_try_probe_locked(void)
+{
+	int ret;
+
+	if (!manage_subsystem_ops || ub_host_started)
+		return 0;
+
+	if (!ub_manage_subsystem_ops_match_any_controller(manage_subsystem_ops))
+		return 0;
+
+	ret = ub_host_probe();
+	if (!ret)
+		ub_host_started = true;
+
+	return ret;
+}
+
+int ub_manage_subsystem_try_probe(void)
+{
+	int ret;
+
+	mutex_lock(&manage_subsystem_ops_mutex);
+	ret = ub_manage_subsystem_try_probe_locked();
+	mutex_unlock(&manage_subsystem_ops_mutex);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(ub_manage_subsystem_try_probe);
 
 int register_ub_manage_subsystem_ops(const struct ub_manage_subsystem_ops *ops)
 {
-	struct ub_bus_controller *ubc;
 	int ret;
 
 	if (!ops) {
@@ -736,21 +782,14 @@ int register_ub_manage_subsystem_ops(const struct ub_manage_subsystem_ops *ops)
 
 	mutex_lock(&manage_subsystem_ops_mutex);
 	if (!manage_subsystem_ops) {
-		list_for_each_entry(ubc, &ubc_list, node) {
-			if (((ubc->attr.ubc_guid_high >> UBC_GUID_VENDOR_SHIFT) &
-			    UBC_GUID_VENDOR_MASK) == ops->vendor) {
-				manage_subsystem_ops = ops;
-				ret = ub_host_probe();
-				if (ret)
-					manage_subsystem_ops = NULL;
-				else
-					pr_info("ub manage subsystem ops register successfully\n");
-
-				mutex_unlock(&manage_subsystem_ops_mutex);
-				return ret;
-			}
-		}
-		pr_warn("ub manage subsystem ops is not match with any of ub controller\n");
+		manage_subsystem_ops = ops;
+		ret = ub_manage_subsystem_try_probe_locked();
+		if (ret)
+			manage_subsystem_ops = NULL;
+		else if (ub_host_started)
+			pr_info("ub manage subsystem ops register successfully\n");
+		else
+			pr_info("ub manage subsystem ops registered, waiting for matching ub controller\n");
 	} else {
 		pr_warn("ub manage subsystem ops has been registered\n");
 	}
@@ -769,7 +808,8 @@ void unregister_ub_manage_subsystem_ops(const struct ub_manage_subsystem_ops *op
 
 	mutex_lock(&manage_subsystem_ops_mutex);
 	if (manage_subsystem_ops == ops) {
-		ub_host_remove();
+		if (ub_host_started)
+			ub_host_remove();
 		manage_subsystem_ops = NULL;
 		pr_info("ub manage subsystem ops unregister successfully\n");
 	} else {

@@ -66,3 +66,4 @@ struct ub_bus_controller *ub_find_bus_controller_by_cna(u32 cna)
 
 	return NULL;
 }
+EXPORT_SYMBOL_GPL(ub_find_bus_controller_by_cna);

@@ -606,6 +606,10 @@ int handle_ubc_table(u64 pointer)
 	if (ret)
 		goto err_handle;
 
+	ret = ub_manage_subsystem_try_probe();
+	if (ret)
+		goto err_handle;
+
 	ub_table_put(info_node);
 	return 0;
 

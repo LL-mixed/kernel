@@ -74,5 +74,6 @@ struct ub_manage_subsystem_ops {
 int register_ub_manage_subsystem_ops(const struct ub_manage_subsystem_ops *ops);
 void unregister_ub_manage_subsystem_ops(const struct ub_manage_subsystem_ops *ops);
 const struct ub_manage_subsystem_ops *get_ub_manage_subsystem_ops(void);
+int ub_manage_subsystem_try_probe(void);
 
 #endif /* __UBUS_H__ */

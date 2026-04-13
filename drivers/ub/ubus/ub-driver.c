@@ -197,9 +197,71 @@ static void ub_free_dynids(struct ub_driver *drv)
 	spin_unlock(&drv->dynids.lock);
 }
 
+static bool ub_driver_match_one_id(const struct ub_device_id *id,
+				   const struct ub_entity *uent)
+{
+	return (id->vendor == UB_ANY_ID || id->vendor == uent_vendor(uent)) &&
+	       (id->device == UB_ANY_ID || id->device == uent_device(uent)) &&
+	       (id->mod_vendor == UB_ANY_ID || id->mod_vendor == uent->mod_vendor) &&
+	       (id->module == UB_ANY_ID || id->module == uent->module) &&
+	       !((id->class_code ^ uent_class(uent)) & id->class_mask);
+}
+
+static bool ub_driver_matches_entity(struct ub_driver *drv,
+				     const struct ub_entity *uent)
+{
+	const struct ub_device_id *id;
+
+	for (id = drv->id_table; id && (id->vendor || id->mod_vendor || id->class_mask); id++) {
+		if (ub_driver_match_one_id(id, uent))
+			return true;
+	}
+
+	return false;
+}
+
+static int ub_try_rebind_from_generic(struct device *dev, void *data)
+{
+	struct ub_driver *new_drv = data;
+	struct ub_entity *uent = to_ub_entity(dev);
+	int ret;
+
+	if (!dev->driver || dev->driver == &new_drv->driver)
+		return 0;
+
+	if (strcmp(dev->driver->name, "ub_generic_component"))
+		return 0;
+
+	if (!uent->match_driver)
+		return 0;
+
+	if (!ub_driver_matches_entity(new_drv, uent))
+		return 0;
+
+	ret = driver_set_override(dev, &uent->driver_override, new_drv->name,
+				  strlen(new_drv->name));
+	if (ret)
+		return 0;
+
+	device_release_driver(dev);
+	ret = device_attach(dev);
+	if (ret <= 0)
+		dev_warn(dev, "late rebind to %s failed, ret=%d\n",
+			 new_drv->name, ret);
+	else
+		dev_info(dev, "late rebind from ub_generic_component to %s\n",
+			 new_drv->name);
+
+	driver_set_override(dev, &uent->driver_override, "", 0);
+
+	return 0;
+}
+
 int __ub_register_driver(struct ub_driver *drv, struct module *owner,
 			 const char *mod_name)
 {
+	int ret;
+
 	if (!drv)
 		return -EINVAL;
 
@@ -212,7 +274,19 @@ int __ub_register_driver(struct ub_driver *drv, struct module *owner,
 	spin_lock_init(&drv->dynids.lock);
 	INIT_LIST_HEAD(&drv->dynids.list);
 
-	return driver_register(&drv->driver);
+	ret = driver_register(&drv->driver);
+	if (ret)
+		return ret;
+
+	/*
+	 * In built-in ubus/vendor configurations, ub_host_probe can enumerate
+	 * entities before functional modules like ubase are loaded. Those
+	 * entities may already be bound to ub_generic_component, so a plain
+	 * late driver_register() is not enough to hand them over.
+	 */
+	bus_for_each_dev(&ub_bus_type, NULL, drv, ub_try_rebind_from_generic);
+
+	return 0;
 }
 EXPORT_SYMBOL_GPL(__ub_register_driver);
 
