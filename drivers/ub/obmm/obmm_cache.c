@@ -34,6 +34,12 @@ int ub_write_queue_flush(uint32_t scna)
 {
 	unsigned long ub_mem_drain_timeout = jiffies + msecs_to_jiffies(UB_MEM_DRAIN_TMOUT_MSEC);
 
+	if (skip_cache_maintain) {
+		pr_debug_ratelimited("skip ub write queue flush for scna=%#x in simulation mode.\n",
+				     scna);
+		return 0;
+	}
+
 	pr_debug("call external: ub_mem_drain(scna=%#x)\n", scna);
 
 	ub_mem_drain_start(scna);

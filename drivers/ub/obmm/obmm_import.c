@@ -386,8 +386,13 @@ static int prepare_import_memory(struct obmm_import_region *i_reg)
 {
 	int ret, rollback_ret;
 
-	if (!validate_scna(i_reg->scna))
-		return -ENODEV;
+	if (region_numa_remote(&i_reg->region)) {
+		if (!validate_scna(i_reg->scna))
+			return -ENODEV;
+	} else {
+		if (!validate_scna_registered(i_reg->scna))
+			return -ENODEV;
+	}
 
 	ret = occupy_addr_range(i_reg);
 	if (ret)

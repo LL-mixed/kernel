@@ -12,6 +12,7 @@
 #include "resource.h"
 #include "ubus_driver.h"
 #include "sysfs.h"
+#include "vendor/hisilicon/hisi-ubus.h"
 
 static inline void ub_resource_to_user(const struct ub_entity *dev, int res_id,
 				       const struct resource *rsrc,
@@ -327,10 +328,28 @@ static ssize_t primary_cna_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
 	struct ub_entity *uent = to_ub_entity(dev);
+	u32 cna;
 
-	return sysfs_emit(buf, "%#06x\n", uent->cna);
+	cna = (uent->ubc && uent->ubc->uent) ? uent->ubc->uent->cna : uent->cna;
+	return sysfs_emit(buf, "%#06x\n", cna);
 }
 DEVICE_ATTR_RO(primary_cna);
+
+static ssize_t mem_windows_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct ub_entity *uent = to_ub_entity(dev);
+	ssize_t ret;
+
+	if (!uent->ubc)
+		return -ENODEV;
+
+	ret = hi_mem_windows_show(uent->ubc, buf);
+	if (ret == -ENODEV || ret == -EOPNOTSUPP)
+		return sysfs_emit(buf, "unsupported\n");
+	return ret;
+}
+DEVICE_ATTR_RO(mem_windows);
 
 static ssize_t ummu_map_show(struct device *dev, struct device_attribute *attr,
 			     char *buf)
@@ -401,6 +420,7 @@ static struct attribute *ub_entity_attrs[] = {
 	&dev_attr_guid.attr,
 	&dev_attr_ubc.attr,
 	&dev_attr_primary_cna.attr,
+	&dev_attr_mem_windows.attr,
 	&dev_attr_instance.attr,
 	&dev_attr_upi.attr,
 	&dev_attr_entity_idx.attr,

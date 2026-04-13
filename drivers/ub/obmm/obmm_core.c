@@ -17,8 +17,10 @@
 #include <linux/memory_hotplug.h>
 #include <linux/rwlock.h>
 #include <linux/idr.h>
+#include <linux/acpi.h>
 
 #include <ub/ubus/ub-mem-decoder.h>
+#include <ub/ubus/ubus.h>
 
 #include "obmm_shm_dev.h"
 #include "obmm_cache.h"
@@ -32,6 +34,7 @@
 #include "obmm_sysfs.h"
 #include "obmm_export.h"
 #include "obmm_core.h"
+#include "../ubus/ubus_controller.h"
 
 size_t __obmm_memseg_size;
 
@@ -244,14 +247,37 @@ bool nodes_on_same_package(const nodemask_t *nodes)
 	return get_nodes_package(nodes) != -1;
 }
 
-bool validate_scna(u32 scna)
+bool validate_scna_registered(u32 scna)
 {
-	int ret = ub_mem_get_numa_id(scna);
+	struct ub_bus_controller *ubc;
 
-	if (ret < 0) {
-		pr_err("%#x is not a known scna, lookup ret=%pe\n", scna, ERR_PTR(ret));
+	ubc = ub_find_bus_controller_by_cna(scna);
+	if (!ubc) {
+		pr_err("%#x is not a registered primary scna\n", scna);
 		return false;
 	}
+
+	return true;
+}
+
+bool validate_scna(u32 scna)
+{
+	struct ub_bus_controller *ubc;
+	int nid;
+
+	ubc = ub_find_bus_controller_by_cna(scna);
+	if (!ubc) {
+		pr_err("%#x is not a registered primary scna\n", scna);
+		return false;
+	}
+
+	nid = pxm_to_node(ubc->attr.proximity_domain);
+	if (nid < 0) {
+		pr_err("%#x has no local NUMA node for proximity_domain=%u\n",
+		       scna, ubc->attr.proximity_domain);
+		return false;
+	}
+
 	return true;
 }
 

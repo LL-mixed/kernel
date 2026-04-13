@@ -54,15 +54,27 @@ out:
 struct ub_bus_controller *ub_find_bus_controller_by_cna(u32 cna)
 {
 	struct ub_bus_controller *ubc;
+	bool found_any = false;
 
 	if (!get_ub_manage_subsystem_ops()) {
 		pr_err("manage subsystem ops is null\n");
 		return NULL;
 	}
 
-	list_for_each_entry(ubc, &ubc_list, node)
+	list_for_each_entry(ubc, &ubc_list, node) {
+		found_any = true;
 		if (ubc->uent->cna == cna)
 			return ubc;
+	}
+
+	if (!found_any) {
+		pr_err("ubc_list empty while looking up cna %#x\n", cna);
+	} else {
+		list_for_each_entry(ubc, &ubc_list, node)
+			pr_err("lookup miss for cna %#x, ubc ctl_no=%u uent_num=%u current_cna=%#x\n",
+			       cna, ubc->ctl_no, ubc->uent ? ubc->uent->uent_num : 0,
+			       ubc->uent ? ubc->uent->cna : 0);
+	}
 
 	return NULL;
 }

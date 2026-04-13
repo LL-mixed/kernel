@@ -533,3 +533,32 @@ static bool hi_mem_validate_pa(struct ub_bus_controller *ubc,
 
 	return false;
 }
+
+ssize_t hi_mem_windows_show(struct ub_bus_controller *ubc, char *buf)
+{
+	struct hi_ubc_private_data *data;
+	int cnt = 0;
+	u8 decoder_num;
+	u8 i;
+
+	if (!ubc || !buf)
+		return -EINVAL;
+
+	if (!is_ub_mem_version_valid(ubc))
+		return -ENODEV;
+
+	data = ubc->data;
+	decoder_num = get_mem_decoder_number(data);
+	for (i = 0; i < decoder_num; i++) {
+		const struct hi_mem_pa_info *info = &data->mem_pa_info[i];
+
+		cnt += sysfs_emit_at(buf, cnt,
+				     "mar%u decode=%#llx cc_base_mb=%#x cc_size_mb=%#x nc_base_mb=%#x nc_size_mb=%#x\n",
+				     i,
+				     (unsigned long long)info->decode_addr,
+				     info->cc_base_addr, info->cc_base_size,
+				     info->nc_base_addr, info->nc_base_size);
+	}
+
+	return cnt;
+}

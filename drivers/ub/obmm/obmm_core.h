@@ -280,6 +280,8 @@ int obmm_query_by_offset(struct obmm_region *reg, unsigned long offset,
 bool nodes_on_same_package(const nodemask_t *nodes);
 
 /* return true if scna is a registered primary CNA of a bus controller. */
+bool validate_scna_registered(u32 scna);
+/* return true if scna maps to a local NUMA node and can back NUMA_REMOTE flows. */
 bool validate_scna(u32 scna);
 /* return true if the @mem_id is within valid range. It does not guarantee that the @mem_id is
  * associated with a present region. Use search_get_obmm_region if one wants to make sure that the
