@@ -818,7 +818,6 @@ static void ipourma_do_handle_rx_wc(struct net_device *dev,
 	struct ipourma_rx_buf *rx_req = &priv->rx_ring[eid_idx][idx];
 	struct sk_buff *skb;
 	u32 data_len;
-
 	/* hold the skb & segments */
 	skb = rx_req->skb_pass_up;
 	rx_req->skb_pass_up = NULL;
@@ -889,34 +888,29 @@ void ipourma_handle_rx_wc(struct net_device *dev,
 void ipourma_rx_cr_event(struct work_struct *work)
 {
 	struct ipourma_dev_priv *priv = container_of(work, struct ipourma_dev_priv, rx_cr_event);
-	int done = 0, budget = IPOURMA_NAPI_RX_WEIGHT;
-	int left, max_num, actual_num, i, ret;
+	int actual_num, i, ret;
 	struct net_device *dev = priv->dev;
 
 	priv->runtime_stats.rx_stats.rx_deque++;
-	while (done < budget) {
-		left = budget - done;
-		/* DO NOT exceed the weight */
-		max_num = min(IPOURMA_NAPI_RX_WEIGHT, left);
-		actual_num = ubcore_poll_jfc(priv->rx_jfc, max_num, priv->rx_cr);
-		/* actual_num may be < 0, but it's OK to break the loop a little later */
-		if (unlikely(actual_num < 0)) {
-			priv->runtime_stats.rx_stats.poll_jfc_failed++;
-			netdev_dbg(dev, "%s:%d\n", ipourma_err_desc(IPOURMA_POLL_JFC_FAILED),
-					actual_num);
-			break;
-		}
-		priv->runtime_stats.rx_stats.poll_jfc_success++;
-		for (i = 0; i < actual_num; i++) {
-			ipourma_handle_rx_wc(dev, priv, &priv->rx_cr[i]);
-			done++;
-			priv->runtime_stats.rx_stats.cqe_recved++;
-		}
-		if (actual_num != max_num) {
-			/* actual_num < 0 or no more crs to poll */
-			break;
-		}
+	actual_num = ubcore_poll_jfc(priv->rx_jfc, IPOURMA_NAPI_RX_WEIGHT, priv->rx_cr);
+	if (unlikely(actual_num < 0)) {
+		priv->runtime_stats.rx_stats.poll_jfc_failed++;
+		netdev_dbg(dev, "%s:%d\n", ipourma_err_desc(IPOURMA_POLL_JFC_FAILED),
+				actual_num);
+		goto rearm_rx_jfc;
 	}
+	priv->runtime_stats.rx_stats.poll_jfc_success++;
+	for (i = 0; i < actual_num; i++) {
+		ipourma_handle_rx_wc(dev, priv, &priv->rx_cr[i]);
+		priv->runtime_stats.rx_stats.cqe_recved++;
+	}
+	if (actual_num == IPOURMA_NAPI_RX_WEIGHT) {
+		priv->runtime_stats.rx_stats.rx_enque++;
+		queue_work(priv->rx_wq, &priv->rx_cr_event);
+		return;
+	}
+
+rearm_rx_jfc:
 	ret = ubcore_rearm_jfc(priv->rx_jfc, false);
 	if (unlikely(ret != 0)) {
 		priv->runtime_stats.rx_stats.rearm_failed++;
