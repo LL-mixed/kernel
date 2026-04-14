@@ -978,12 +978,16 @@ int ubcore_bind_jetty_compat(struct ubcore_jetty *jetty,
 				EID_ARGS(get_tp_cfg.peer_eid));
 			return ret;
 		}
+
+		active_tp_cfg.peer_tp_handle.value = info.peer_tp_handle;
+		active_tp_cfg.tp_attr.rx_psn = info.rx_psn;
 	}
 
 	ret = ubcore_bind_jetty_ex(jetty, tjetty, &active_tp_cfg, udata);
-	if (ret != 0)
+	if (ret != 0) {
 		ubcore_log_err("Failed to bind jetty ex, ret: %d.\n", ret);
 		return ret;
+	}
 
 	return ret;
 }
