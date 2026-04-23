@@ -47,6 +47,10 @@ typedef struct {
 	__u8 b[16];
 } uuid_le;
 
+typedef struct {
+	__u8 b[16];
+} uuid_t;
+
 /* Big exception to the "don't include kernel headers into userspace, which
  * even potentially has different endianness and word sizes, since
  * we handle those differences explicitly below */

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+HOSTCFLAGS_file2alias.o += -I $(srctree)/include
 OBJECT_FILES_NON_STANDARD := y
 CFLAGS_REMOVE_empty.o += $(CC_FLAGS_LTO)
 
