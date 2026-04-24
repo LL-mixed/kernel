@@ -15,6 +15,7 @@
 #include "obmm_import.h"
 #include "obmm_ownership.h"
 #include "obmm_shm_dev.h"
+#include "../ubus/sim/ub_sim_decoder.h"
 
 static dev_t obmm_devt;
 
@@ -186,9 +187,6 @@ static int obmm_shm_fops_open(struct inode *inode, struct file *file)
 	reg = container_of(inode->i_cdev, struct obmm_region, cdevice);
 	file->private_data = reg;
 
-	pr_debug("obmm_shmdev open: mem_id=%d pid=%d f_mode=%#x f_flags=%#x\n", reg->regionid,
-		 current->pid, file->f_mode, file->f_flags);
-
 	cacheable = !(file->f_flags & O_SYNC);
 	if (cacheable && !(reg->mem_cap & OBMM_MEM_ALLOW_CACHEABLE_MMAP)) {
 		pr_err("Noncacheable region %d cannot be mmaped with cachable mode.\n",
@@ -204,8 +202,6 @@ static int obmm_shm_fops_open(struct inode *inode, struct file *file)
 		pr_err("obmm_shmdev open: The device is in creation or destruction process. Open failed.\n");
 		return -EAGAIN;
 	}
-
-	pr_debug("obmm_shmdev open: mem_id=%d pid=%d completed.\n", reg->regionid, current->pid);
 
 	return 0;
 }
@@ -858,6 +854,42 @@ err_unlock:
 	return ret;
 }
 
+static long obmm_shm_sync_import_range(struct file *file,
+				       const struct obmm_cmd_sync_import_range *sync_info)
+{
+	struct obmm_region *reg = (struct obmm_region *)file->private_data;
+	struct obmm_import_region *i_reg;
+	unsigned long offset;
+	unsigned long length;
+	int ret;
+
+	if (!reg || reg->type != OBMM_IMPORT_REGION)
+		return -EINVAL;
+
+	i_reg = container_of(reg, struct obmm_import_region, region);
+	if (!i_reg->sim_dec_mapped || i_reg->sim_dec_map_id == 0)
+		return -EINVAL;
+
+	offset = (unsigned long)sync_info->offset;
+	length = (unsigned long)sync_info->length;
+	if (length == 0)
+		return 0;
+	if (offset >= reg->mem_size || length > reg->mem_size - offset)
+		return -EINVAL;
+
+	ret = ub_sim_decoder_sync(g_ub_sim_decoder ? &g_ub_sim_decoder->service : NULL,
+				  i_reg->sim_dec_map_id, offset, length);
+	if (ret) {
+		pr_err("obmm_shmdev sync import range failed: mem_id=%d map_id=%#llx offset=%#lx len=%#lx ret=%pe\n",
+		       reg->regionid, i_reg->sim_dec_map_id, offset, length, ERR_PTR(ret));
+		return ret;
+	}
+
+	pr_debug("obmm_shmdev sync import range: mem_id=%d map_id=%#llx offset=%#lx len=%#lx\n",
+		 reg->regionid, i_reg->sim_dec_map_id, offset, length);
+	return 0;
+}
+
 static long obmm_shm_fops_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	long ret;
@@ -874,6 +906,18 @@ static long obmm_shm_fops_ioctl(struct file *file, unsigned int cmd, unsigned lo
 		}
 
 		ret = obmm_shm_update_range(file, &cmd_update_range);
+	} break;
+	case OBMM_SHMDEV_SYNC_IMPORT_RANGE: {
+		struct obmm_cmd_sync_import_range cmd_sync_import_range;
+
+		ret = (long)copy_from_user(&cmd_sync_import_range, (void __user *)arg,
+					   sizeof(struct obmm_cmd_sync_import_range));
+		if (ret) {
+			pr_err("failed to load sync_import_range argument");
+			return -EFAULT;
+		}
+
+		ret = obmm_shm_sync_import_range(file, &cmd_sync_import_range);
 	} break;
 	default:
 		ret = -ENOTTY;

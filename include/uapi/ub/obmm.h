@@ -160,6 +160,14 @@ struct obmm_cmd_update_range {
 
 #define OBMM_SHMDEV_UPDATE_RANGE	_IOW('X', 0, struct obmm_cmd_update_range)
 
+struct obmm_cmd_sync_import_range {
+	/* byte range within imported shmdev mapping: [offset, offset + length) */
+	__u64 offset;
+	__u64 length;
+} __attribute__((aligned(8)));
+
+#define OBMM_SHMDEV_SYNC_IMPORT_RANGE _IOW('X', 1, struct obmm_cmd_sync_import_range)
+
 struct obmm_cmd_preimport {
 	__u64 pa;
 	__u64 length;
