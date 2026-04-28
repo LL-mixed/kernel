@@ -854,8 +854,8 @@ err_unlock:
 	return ret;
 }
 
-static long obmm_shm_sync_import_range(struct file *file,
-				       const struct obmm_cmd_sync_import_range *sync_info)
+static long obmm_shm_sync_remote_range(struct file *file,
+				       const obmm_cmd_sync_remote_range *sync_info)
 {
 	struct obmm_region *reg = (struct obmm_region *)file->private_data;
 	struct obmm_import_region *i_reg;
@@ -880,12 +880,12 @@ static long obmm_shm_sync_import_range(struct file *file,
 	ret = ub_sim_decoder_sync(g_ub_sim_decoder ? &g_ub_sim_decoder->service : NULL,
 				  i_reg->sim_dec_map_id, offset, length);
 	if (ret) {
-		pr_err("obmm_shmdev sync import range failed: mem_id=%d map_id=%#llx offset=%#lx len=%#lx ret=%pe\n",
+		pr_err("obmm_shmdev sync remote range failed: mem_id=%d map_id=%#llx offset=%#lx len=%#lx ret=%pe\n",
 		       reg->regionid, i_reg->sim_dec_map_id, offset, length, ERR_PTR(ret));
 		return ret;
 	}
 
-	pr_debug("obmm_shmdev sync import range: mem_id=%d map_id=%#llx offset=%#lx len=%#lx\n",
+	pr_debug("obmm_shmdev sync remote range: mem_id=%d map_id=%#llx offset=%#lx len=%#lx\n",
 		 reg->regionid, i_reg->sim_dec_map_id, offset, length);
 	return 0;
 }
@@ -907,17 +907,17 @@ static long obmm_shm_fops_ioctl(struct file *file, unsigned int cmd, unsigned lo
 
 		ret = obmm_shm_update_range(file, &cmd_update_range);
 	} break;
-	case OBMM_SHMDEV_SYNC_IMPORT_RANGE: {
-		struct obmm_cmd_sync_import_range cmd_sync_import_range;
+	case OBMM_SHMDEV_SYNC_REMOTE_RANGE: {
+		obmm_cmd_sync_remote_range cmd_sync_remote_range;
 
-		ret = (long)copy_from_user(&cmd_sync_import_range, (void __user *)arg,
-					   sizeof(struct obmm_cmd_sync_import_range));
+		ret = (long)copy_from_user(&cmd_sync_remote_range, (void __user *)arg,
+					   sizeof(obmm_cmd_sync_remote_range));
 		if (ret) {
-			pr_err("failed to load sync_import_range argument");
+			pr_err("failed to load sync_remote_range argument");
 			return -EFAULT;
 		}
 
-		ret = obmm_shm_sync_import_range(file, &cmd_sync_import_range);
+		ret = obmm_shm_sync_remote_range(file, &cmd_sync_remote_range);
 	} break;
 	default:
 		ret = -ENOTTY;

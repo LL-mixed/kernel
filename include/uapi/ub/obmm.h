@@ -165,8 +165,10 @@ struct obmm_cmd_sync_import_range {
 	__u64 offset;
 	__u64 length;
 } __attribute__((aligned(8)));
+typedef struct obmm_cmd_sync_import_range obmm_cmd_sync_remote_range;
 
 #define OBMM_SHMDEV_SYNC_IMPORT_RANGE _IOW('X', 1, struct obmm_cmd_sync_import_range)
+#define OBMM_SHMDEV_SYNC_REMOTE_RANGE OBMM_SHMDEV_SYNC_IMPORT_RANGE
 
 struct obmm_cmd_preimport {
 	__u64 pa;
