@@ -335,6 +335,23 @@ static int __ub_entity_probe(struct ub_driver *drv, struct ub_entity *dev)
 	return ret;
 }
 
+static int ub_specific_driver_matches(struct device_driver *driver, void *data)
+{
+	struct ub_driver *drv = to_ub_driver(driver);
+	struct ub_entity *ub_entity = data;
+
+	if (!strcmp(driver->name, "ub_generic_component"))
+		return 0;
+
+	return ub_match_device(drv, ub_entity) ? 1 : 0;
+}
+
+static bool ub_has_specific_driver_match(struct ub_entity *ub_entity)
+{
+	return bus_for_each_drv(&ub_bus_type, NULL, ub_entity,
+				ub_specific_driver_matches) > 0;
+}
+
 static int ub_entity_probe(struct device *dev)
 {
 	struct ub_driver *drv = to_ub_driver(dev->driver);
@@ -342,6 +359,10 @@ static int ub_entity_probe(struct device *dev)
 	struct ub_entity *pue;
 	u16 entity_idx;
 	int ret;
+
+	if (!strcmp(drv->name, "ub_generic_component") &&
+	    ub_has_specific_driver_match(ub_entity))
+		return -ENODEV;
 
 	ub_entity_get(ub_entity);
 	if (!ub_entity->is_mue) {

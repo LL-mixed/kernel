@@ -5,4 +5,4 @@ udma-$(CONFIG_UB_UDMA) := udma_main.o udma_cmd.o udma_common.o udma_ctx.o udma_d
 	     udma_ctrlq_tp.o udma_eid.o udma_ctl.o udma_segment.o \
 	     udma_dfx.o udma_jfs.o udma_jetty.o udma_jfr.o udma_mue.o udma_jetty_group.o
 
-obj-m := udma.o
+obj-$(CONFIG_UB_UDMA) += udma.o

@@ -65,8 +65,8 @@ static int ubct_iommu_fwspec_init(struct device *dev, u32 id,
 static int ubct_iommu_configure(struct device *dev)
 {
 	if (!ub_bus_type_iommu_ops) {
-		dev_err(dev, "ubus's iommu_ops not ready\n");
-		return -ENODEV;
+		dev_dbg(dev, "ubus's iommu_ops not ready, defer probe\n");
+		return -EPROBE_DEFER;
 	}
 
 	/* input id is 0, fwnode is NULL, ummu not care */
