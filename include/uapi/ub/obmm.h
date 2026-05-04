@@ -112,6 +112,32 @@ struct obmm_cmd_unimport {
 	__u64 flags;
 } __attribute__((aligned(8)));
 
+#define OBMM_BOOTSTRAP_MAX_NODES 8
+
+struct obmm_bootstrap_record {
+	__u64 export_mem_id;
+	__u64 remote_uba;
+	__u64 size;
+	__u64 generation;
+	__u64 flags;
+	__u32 node_id;
+	__u32 node_count;
+	__u32 export_cna;
+	__u32 token_id;
+} __attribute__((aligned(8)));
+
+struct obmm_cmd_bootstrap_publish {
+	struct obmm_bootstrap_record record;
+} __attribute__((aligned(8)));
+
+struct obmm_cmd_bootstrap_lookup {
+	__u64 generation;
+	__u32 node_count;
+	__u32 local_cna;
+	__u32 count;
+	__u32 rsvd;
+	struct obmm_bootstrap_record records[OBMM_BOOTSTRAP_MAX_NODES];
+} __attribute__((aligned(8)));
 
 #define OBMM_CMD_EXPORT      _IOWR('x', 0, struct obmm_cmd_export)
 #define OBMM_CMD_IMPORT      _IOWR('x', 1, struct obmm_cmd_import)
@@ -121,6 +147,8 @@ struct obmm_cmd_unimport {
 #define OBMM_CMD_EXPORT_PID  _IOWR('x', 5, struct obmm_cmd_export_pid)
 #define OBMM_CMD_DECLARE_PREIMPORT   _IOWR('x', 6, struct obmm_cmd_preimport)
 #define OBMM_CMD_UNDECLARE_PREIMPORT _IOW('x', 7, struct obmm_cmd_preimport)
+#define OBMM_CMD_BOOTSTRAP_PUBLISH _IOW('x', 8, struct obmm_cmd_bootstrap_publish)
+#define OBMM_CMD_BOOTSTRAP_LOOKUP _IOWR('x', 9, struct obmm_cmd_bootstrap_lookup)
 
 /* 2bits */
 #define OBMM_SHM_MEM_CACHE_RESV     0x0

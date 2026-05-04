@@ -78,6 +78,31 @@ static int sim_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 	return ret;
 }
 
+static int sim_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_bootstrap_record *record)
+{
+	struct sim_dec_obmm_bootstrap_publish_req req = {0};
+
+	req.record = *record;
+	return ub_sim_dec_send_cmd(&dec->adapter, scna,
+				   SIM_DEC_OP_OBMM_BOOTSTRAP_PUBLISH,
+				   &req, sizeof(req), NULL, 0);
+}
+
+static int sim_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
+		u32 scna, u32 node_count, u64 generation,
+		struct sim_dec_obmm_bootstrap_lookup_resp *resp)
+{
+	struct sim_dec_obmm_bootstrap_lookup_req req = {
+		.node_count = node_count,
+		.generation = generation,
+	};
+
+	return ub_sim_dec_send_cmd(&dec->adapter, scna,
+				   SIM_DEC_OP_OBMM_BOOTSTRAP_LOOKUP,
+				   &req, sizeof(req), resp, sizeof(*resp));
+}
+
 /* Hardware backend stubs */
 static int hw_backend_map(struct ub_sim_decoder *dec,
 			  struct sim_dec_map_req *req, u64 *map_id)
@@ -174,6 +199,42 @@ int ub_sim_dec_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 	}
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_query);
+
+int ub_sim_dec_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_bootstrap_record *record)
+{
+	if (!dec || !record)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_obmm_bootstrap_publish(dec, scna, record);
+	case UB_SIM_DEC_BACKEND_HW:
+		return -ENOTSUPP;
+	default:
+		return -EINVAL;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_obmm_bootstrap_publish);
+
+int ub_sim_dec_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
+		u32 scna, u32 node_count, u64 generation,
+		struct sim_dec_obmm_bootstrap_lookup_resp *resp)
+{
+	if (!dec || !resp)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_obmm_bootstrap_lookup(dec, scna, node_count,
+							 generation, resp);
+	case UB_SIM_DEC_BACKEND_HW:
+		return -ENOTSUPP;
+	default:
+		return -EINVAL;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_obmm_bootstrap_lookup);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("UB Simulation Decoder Backend");

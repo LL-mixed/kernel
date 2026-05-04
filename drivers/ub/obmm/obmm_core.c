@@ -35,6 +35,7 @@
 #include "obmm_export.h"
 #include "obmm_core.h"
 #include "../ubus/ubus_controller.h"
+#include "../ubus/sim/ub_sim_decoder.h"
 
 size_t __obmm_memseg_size;
 
@@ -442,6 +443,36 @@ static int obmm_dev_flush(struct file *file __always_unused, fl_owner_t owner __
 	return 0;
 }
 
+static void obmm_bootstrap_to_sim(
+		const struct obmm_bootstrap_record *src,
+		struct sim_dec_obmm_bootstrap_record *dst)
+{
+	dst->export_mem_id = src->export_mem_id;
+	dst->remote_uba = src->remote_uba;
+	dst->size = src->size;
+	dst->generation = src->generation;
+	dst->flags = src->flags;
+	dst->node_id = src->node_id;
+	dst->node_count = src->node_count;
+	dst->export_cna = src->export_cna;
+	dst->token_id = src->token_id;
+}
+
+static void obmm_bootstrap_from_sim(
+		const struct sim_dec_obmm_bootstrap_record *src,
+		struct obmm_bootstrap_record *dst)
+{
+	dst->export_mem_id = src->export_mem_id;
+	dst->remote_uba = src->remote_uba;
+	dst->size = src->size;
+	dst->generation = src->generation;
+	dst->flags = src->flags;
+	dst->node_id = src->node_id;
+	dst->node_count = src->node_count;
+	dst->export_cna = src->export_cna;
+	dst->token_id = src->token_id;
+}
+
 static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, unsigned long arg)
 {
 	int ret;
@@ -453,6 +484,8 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_addr_query query;
 		struct obmm_cmd_export_pid export_pid;
 		struct obmm_cmd_preimport preimport;
+		struct obmm_cmd_bootstrap_publish bootstrap_publish;
+		struct obmm_cmd_bootstrap_lookup bootstrap_lookup;
 	} cmd_param;
 
 	switch (cmd) {
@@ -580,6 +613,56 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		}
 
 		ret = obmm_unpreimport(&cmd_param.preimport);
+	} break;
+	case OBMM_CMD_BOOTSTRAP_PUBLISH: {
+		struct sim_dec_obmm_bootstrap_record record = {0};
+
+		ret = (int)copy_from_user(&cmd_param.bootstrap_publish,
+					  (void __user *)arg,
+					  sizeof(struct obmm_cmd_bootstrap_publish));
+		if (ret) {
+			pr_err("failed to load bootstrap publish argument\n");
+			return -EFAULT;
+		}
+
+		obmm_bootstrap_to_sim(&cmd_param.bootstrap_publish.record,
+				      &record);
+		ret = ub_sim_decoder_obmm_bootstrap_publish(record.export_cna,
+							    &record);
+	} break;
+	case OBMM_CMD_BOOTSTRAP_LOOKUP: {
+		struct sim_dec_obmm_bootstrap_lookup_resp resp = {0};
+		u32 i;
+
+		ret = (int)copy_from_user(&cmd_param.bootstrap_lookup,
+					  (void __user *)arg,
+					  sizeof(struct obmm_cmd_bootstrap_lookup));
+		if (ret) {
+			pr_err("failed to load bootstrap lookup argument\n");
+			return -EFAULT;
+		}
+
+		ret = ub_sim_decoder_obmm_bootstrap_lookup(
+			cmd_param.bootstrap_lookup.local_cna,
+			cmd_param.bootstrap_lookup.node_count,
+			cmd_param.bootstrap_lookup.generation, &resp);
+		if (ret)
+			return ret;
+
+		memset(&cmd_param.bootstrap_lookup.records, 0,
+		       sizeof(cmd_param.bootstrap_lookup.records));
+		cmd_param.bootstrap_lookup.count = resp.count;
+		for (i = 0; i < resp.count && i < OBMM_BOOTSTRAP_MAX_NODES; i++)
+			obmm_bootstrap_from_sim(&resp.records[i],
+						&cmd_param.bootstrap_lookup.records[i]);
+
+		ret = (int)copy_to_user((void __user *)arg,
+					&cmd_param.bootstrap_lookup,
+					sizeof(struct obmm_cmd_bootstrap_lookup));
+		if (ret) {
+			pr_err("failed to write bootstrap lookup result\n");
+			return -EFAULT;
+		}
 	} break;
 	default:
 		ret = -ENOTTY;

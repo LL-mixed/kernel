@@ -23,6 +23,8 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_UNMAP	= 0x02,
 	SIM_DEC_OP_SYNC		= 0x03,
 	SIM_DEC_OP_QUERY	= 0x04,
+	SIM_DEC_OP_OBMM_BOOTSTRAP_PUBLISH = 0x05,
+	SIM_DEC_OP_OBMM_BOOTSTRAP_LOOKUP = 0x06,
 };
 
 /* Control command status */
@@ -90,6 +92,36 @@ struct sim_dec_query_resp {
 	u32	ref_count;
 };
 
+#define SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES 8
+
+struct sim_dec_obmm_bootstrap_record {
+	u64	export_mem_id;
+	u64	remote_uba;
+	u64	size;
+	u64	generation;
+	u64	flags;
+	u32	node_id;
+	u32	node_count;
+	u32	export_cna;
+	u32	token_id;
+};
+
+struct sim_dec_obmm_bootstrap_publish_req {
+	struct sim_dec_obmm_bootstrap_record record;
+};
+
+struct sim_dec_obmm_bootstrap_lookup_req {
+	u64	generation;
+	u32	node_count;
+	u32	rsvd;
+};
+
+struct sim_dec_obmm_bootstrap_lookup_resp {
+	u32	count;
+	u32	rsvd;
+	struct sim_dec_obmm_bootstrap_record records[SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES];
+};
+
 /* Map entry maintained by service layer */
 struct ub_sim_dec_map_entry {
 	struct list_head	list;
@@ -141,6 +173,11 @@ int ub_sim_decoder_sync(struct ub_sim_decoder_service *svc, u64 map_id,
 			u64 offset, u64 len);
 int ub_sim_decoder_query(struct ub_sim_decoder_service *svc, u64 map_id,
 			 struct sim_dec_query_resp *resp);
+int ub_sim_decoder_obmm_bootstrap_publish(u32 scna,
+		const struct sim_dec_obmm_bootstrap_record *record);
+int ub_sim_decoder_obmm_bootstrap_lookup(u32 scna, u32 node_count,
+		u64 generation,
+		struct sim_dec_obmm_bootstrap_lookup_resp *resp);
 
 /* Control adapter API */
 int ub_sim_dec_ctrl_adapter_init(struct ub_sim_dec_ctrl_adapter *adapter,
@@ -158,6 +195,11 @@ int ub_sim_dec_backend_sync(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			    u64 offset, u64 len);
 int ub_sim_dec_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			     struct sim_dec_query_resp *resp);
+int ub_sim_dec_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_bootstrap_record *record);
+int ub_sim_dec_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
+		u32 scna, u32 node_count, u64 generation,
+		struct sim_dec_obmm_bootstrap_lookup_resp *resp);
 
 /* Global decoder instance */
 extern struct ub_sim_decoder *g_ub_sim_decoder;

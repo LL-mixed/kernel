@@ -285,5 +285,45 @@ int ub_sim_decoder_query(struct ub_sim_decoder_service *svc, u64 map_id,
 }
 EXPORT_SYMBOL_GPL(ub_sim_decoder_query);
 
+int ub_sim_decoder_obmm_bootstrap_publish(u32 scna,
+		const struct sim_dec_obmm_bootstrap_record *record)
+{
+	if (!record)
+		return -EINVAL;
+	if (!g_ub_sim_decoder || !g_ub_sim_decoder->enabled)
+		return -ENODEV;
+	if (record->node_count < 2 ||
+	    record->node_count > SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES ||
+	    record->node_id >= record->node_count ||
+	    record->export_cna == 0 || record->token_id == 0 ||
+	    record->remote_uba == 0 || record->size == 0 ||
+	    record->generation == 0)
+		return -EINVAL;
+
+	return ub_sim_dec_backend_obmm_bootstrap_publish(g_ub_sim_decoder,
+							 scna, record);
+}
+EXPORT_SYMBOL_GPL(ub_sim_decoder_obmm_bootstrap_publish);
+
+int ub_sim_decoder_obmm_bootstrap_lookup(u32 scna, u32 node_count,
+		u64 generation,
+		struct sim_dec_obmm_bootstrap_lookup_resp *resp)
+{
+	if (!resp)
+		return -EINVAL;
+	if (!g_ub_sim_decoder || !g_ub_sim_decoder->enabled)
+		return -ENODEV;
+	if (node_count < 2 || node_count > SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES)
+		return -EINVAL;
+	if (generation == 0)
+		return -EINVAL;
+
+	memset(resp, 0, sizeof(*resp));
+	return ub_sim_dec_backend_obmm_bootstrap_lookup(g_ub_sim_decoder, scna,
+							node_count, generation,
+							resp);
+}
+EXPORT_SYMBOL_GPL(ub_sim_decoder_obmm_bootstrap_lookup);
+
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("UB Simulation Decoder Service");
