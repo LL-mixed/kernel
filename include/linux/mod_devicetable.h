@@ -13,6 +13,10 @@
 #include <linux/types.h>
 #include <linux/uuid.h>
 typedef unsigned long kernel_ulong_t;
+#else
+typedef struct {
+	__u8 b[16];
+} uuid_t;
 #endif
 
 #define PCI_ANY_ID (~0)

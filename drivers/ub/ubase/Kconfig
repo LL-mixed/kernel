@@ -8,6 +8,7 @@ menuconfig UB_UBASE
 		tristate "UBASE support"
 		depends on UB_UBUS_BUS && UB_UBUS_USI
 		depends on UB_UMMU_CORE_DRIVER
+		select AUXILIARY_BUS
 		help
 		  This option enables support for the ubase module of Unifiedbus,
 		  including support for getting resource and create auxiliary bus
