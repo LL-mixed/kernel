@@ -42,6 +42,28 @@ static int sim_backend_map(struct ub_sim_decoder *dec,
 	return 0;
 }
 
+static int sim_backend_gva_map(struct ub_sim_decoder *dec,
+			       struct sim_dec_gva_map_req *req, u64 *map_id)
+{
+	struct sim_dec_map_resp resp = {0};
+	int ret;
+
+	ret = ub_sim_dec_send_cmd(&dec->adapter, req->map_req.scna,
+				  SIM_DEC_OP_GVA_MAP, req, sizeof(*req),
+				  &resp, sizeof(resp));
+	if (ret < 0)
+		return ret;
+
+	if (resp.status != SIM_DEC_STATUS_SUCCESS) {
+		pr_err("UB SIM Decoder: backend GVA MAP failed status=%u\n",
+		       resp.status);
+		return -EIO;
+	}
+
+	*map_id = resp.map_id;
+	return 0;
+}
+
 static int sim_backend_unmap(struct ub_sim_decoder *dec, u32 scna, u64 map_id)
 {
 	struct sim_dec_unmap_req req = { .map_id = map_id };
@@ -149,6 +171,23 @@ int ub_sim_dec_backend_map(struct ub_sim_decoder *dec,
 	}
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_map);
+
+int ub_sim_dec_backend_gva_map(struct ub_sim_decoder *dec,
+			       struct sim_dec_gva_map_req *req, u64 *map_id)
+{
+	if (!dec || !req || !map_id)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_gva_map(dec, req, map_id);
+	case UB_SIM_DEC_BACKEND_HW:
+		return -ENOTSUPP;
+	default:
+		return -EINVAL;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_gva_map);
 
 int ub_sim_dec_backend_unmap(struct ub_sim_decoder *dec, u32 scna, u64 map_id)
 {

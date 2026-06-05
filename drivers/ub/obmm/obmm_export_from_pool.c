@@ -276,6 +276,16 @@ static struct obmm_export_region *alloc_region_from_cmd(struct obmm_cmd_export *
 	}
 	e_reg->node_count = cmd_export->length;
 	memcpy(e_reg->node_mem_size, cmd_export->size, sizeof(uint64_t) * e_reg->node_count);
+	if (cmd_export->flags & OBMM_EXPORT_FLAG_GSVA_FIXED_UBA) {
+		if (!cmd_export->uba || !IS_ALIGNED(cmd_export->uba, PAGE_SIZE) ||
+		    !IS_ALIGNED(total_size, PAGE_SIZE)) {
+			kfree(e_reg);
+			return ERR_PTR(-EINVAL);
+		}
+		e_reg->gsva_fixed_uba = true;
+		e_reg->requested_uba = cmd_export->uba;
+		e_reg->region.flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;
+	}
 	/* compaction */
 	while (e_reg->node_count - 1 > 0 && e_reg->node_mem_size[e_reg->node_count - 1] == 0)
 		e_reg->node_count--;

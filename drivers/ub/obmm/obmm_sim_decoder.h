@@ -9,6 +9,40 @@
 
 #define OBMM_SIM_DEC_PRIV_MAGIC 0x53444950U /* "SDIP" */
 #define OBMM_SIM_DEC_PRIV_VER_1 1
+#define OBMM_SIM_DEC_PRIV_VER_2 2
+
+/* map_source values for GVA metadata */
+#define OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM 1
+#define OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER 2
+
+/* address_profile values */
+#define OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA 1
+#define OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY 2
+
+/* access/semantics profile */
+#define OBMM_SIM_DEC_CACHE_POLICY_NC 0
+#define OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH 1
+
+struct obmm_sim_dec_import_priv_v2 {
+	u32 magic;
+	u16 version;
+	u16 len;
+	u64 remote_uba;
+	u32 token_value;
+	u32 flags;
+	u32 map_source;
+	u32 address_profile;
+	u32 cache_policy;
+	u32 vmid;
+	u32 asid;
+	u64 local_va;
+	u64 home_va;
+	u64 pte_offset;
+	u32 tid;
+	u32 p_tag;
+	u32 access_flags;
+	u64 gva_id;
+};
 
 struct obmm_sim_dec_import_priv_v1 {
 	u32 magic;
@@ -31,6 +65,18 @@ struct obmm_sim_dec_import_info {
 	u8 deid[16];
 	u32 upi;
 	u32 src_eid;
+	u64 local_va;
+	u64 home_va;
+	u64 pte_offset;
+	u32 vmid;
+	u32 asid;
+	u32 tid;
+	u32 p_tag;
+	u32 cache_policy;
+	u32 map_source;
+	u32 address_profile;
+	u32 access_flags;
+	u64 gva_id;
 	u64 map_id;
 };
 

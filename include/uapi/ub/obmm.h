@@ -21,7 +21,10 @@ extern "C" {
 
 #define OBMM_EXPORT_FLAG_ALLOW_MMAP 0x1UL
 #define OBMM_EXPORT_FLAG_FAST       0x2UL
-#define OBMM_EXPORT_FLAG_MASK       (OBMM_EXPORT_FLAG_ALLOW_MMAP | OBMM_EXPORT_FLAG_FAST)
+#define OBMM_EXPORT_FLAG_GSVA_FIXED_UBA 0x4UL
+#define OBMM_EXPORT_FLAG_MASK       (OBMM_EXPORT_FLAG_ALLOW_MMAP | \
+					 OBMM_EXPORT_FLAG_FAST | \
+					 OBMM_EXPORT_FLAG_GSVA_FIXED_UBA)
 
 struct obmm_cmd_export_pid {
 	void *va;
@@ -139,6 +142,18 @@ struct obmm_cmd_bootstrap_lookup {
 	struct obmm_bootstrap_record records[OBMM_BOOTSTRAP_MAX_NODES];
 } __attribute__((aligned(8)));
 
+struct obmm_cmd_gsva_aperture {
+	__u64 base;
+	__u64 size;
+	__u64 generation;
+	__u64 flags;
+	__u32 node_id;
+	__u32 node_count;
+	__u32 rsvd[4];
+} __attribute__((aligned(8)));
+
+#define OBMM_GSVA_APERTURE_F_ACTIVE	0x1UL
+
 #define OBMM_CMD_EXPORT      _IOWR('x', 0, struct obmm_cmd_export)
 #define OBMM_CMD_IMPORT      _IOWR('x', 1, struct obmm_cmd_import)
 #define OBMM_CMD_UNEXPORT    _IOW('x', 2, struct obmm_cmd_unexport)
@@ -149,6 +164,9 @@ struct obmm_cmd_bootstrap_lookup {
 #define OBMM_CMD_UNDECLARE_PREIMPORT _IOW('x', 7, struct obmm_cmd_preimport)
 #define OBMM_CMD_BOOTSTRAP_PUBLISH _IOW('x', 8, struct obmm_cmd_bootstrap_publish)
 #define OBMM_CMD_BOOTSTRAP_LOOKUP _IOWR('x', 9, struct obmm_cmd_bootstrap_lookup)
+#define OBMM_CMD_GSVA_APERTURE_REGISTER _IOW('x', 10, struct obmm_cmd_gsva_aperture)
+#define OBMM_CMD_GSVA_APERTURE_QUERY _IOWR('x', 11, struct obmm_cmd_gsva_aperture)
+#define OBMM_CMD_GSVA_APERTURE_CLEAR _IOW('x', 12, struct obmm_cmd_gsva_aperture)
 
 /* 2bits */
 #define OBMM_SHM_MEM_CACHE_RESV     0x0

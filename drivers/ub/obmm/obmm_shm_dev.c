@@ -15,6 +15,7 @@
 #include "obmm_import.h"
 #include "obmm_ownership.h"
 #include "obmm_shm_dev.h"
+#include "obmm_core.h"
 #include "../ubus/sim/ub_sim_decoder.h"
 
 static dev_t obmm_devt;
@@ -324,6 +325,13 @@ static int obmm_shm_fops_mmap(struct file *file, struct vm_area_struct *vma)
 	o_sync = file->f_flags & O_SYNC;
 	size = vma->vm_end - vma->vm_start;
 	offset = vma->vm_pgoff << PAGE_SHIFT;
+
+	if (!region_gsva_segment(reg) &&
+	    obmm_gsva_aperture_overlaps(vma->vm_start, vma->vm_end)) {
+		pr_err("mmap region %d: vma [%#lx, %#lx) overlaps active GSVA aperture\n",
+		       reg->regionid, vma->vm_start, vma->vm_end);
+		return -EINVAL;
+	}
 
 	if (offset & OBMM_MMAP_FLAG_HUGETLB_PMD) {
 		pr_debug("trying hugepage mmap\n");

@@ -11,6 +11,7 @@
 #include <linux/memory.h>
 #include <linux/kthread.h>
 #include <linux/dma-mapping.h>
+#include <linux/iommu.h>
 #include <linux/io.h>
 #include <linux/wait.h>
 #include <linux/mmzone.h>
@@ -46,6 +47,10 @@ static int fill_ummu_info(struct tdev_attr *attr, struct obmm_export_region *e_r
 {
 	tdev_attr_init(attr);
 	attr->name = (char *)"OBMM_TDEV";
+	if (e_reg->gsva_fixed_uba) {
+		attr->mode = MAPT_MODE_TABLE;
+		attr->usva = true;
+	}
 	if (e_reg->vendor_len > 0) {
 		attr->priv = kmemdup(e_reg->vendor_info, e_reg->vendor_len, GFP_KERNEL);
 		if (!attr->priv)
@@ -92,6 +97,7 @@ static int setup_ummu(struct obmm_export_region *e_reg)
 	pr_debug("dma_map_sgtable returned 0\n");
 
 	e_reg->uba = sg_dma_address(e_reg->sgt.sgl);
+	e_reg->dma_uba = e_reg->uba;
 	drain_ummu_info(&attr);
 	return 0;
 
@@ -103,9 +109,53 @@ out_drain_info:
 	return retval;
 }
 
+static int setup_gsva_fixed_uba(struct obmm_export_region *e_reg)
+{
+	struct ummu_matt_domain domain = {};
+	int ret;
+
+	if (!e_reg->gsva_fixed_uba)
+		return 0;
+
+	domain.l_tid = e_reg->tokenid;
+	domain.r_tid = UMMU_INVALID_TID;
+	domain.mm = current->mm;
+	ret = ummu_sva_matt_map(&domain, e_reg->requested_uba, &e_reg->sgt,
+				IOMMU_READ | IOMMU_WRITE);
+	if (ret) {
+		pr_err("GSVA fixed UBA map failed: requested_uba=%#llx token=%u ret=%pe\n",
+		       e_reg->requested_uba, e_reg->tokenid, ERR_PTR(ret));
+		return ret;
+	}
+
+	e_reg->gsva_matt_mapped = true;
+	e_reg->uba = e_reg->requested_uba;
+	pr_info("GSVA fixed UBA mapped requested_uba=%#llx backing_uba=%#llx token=%u\n",
+		e_reg->requested_uba, e_reg->dma_uba, e_reg->tokenid);
+	return 0;
+}
+
+static void teardown_gsva_fixed_uba(struct obmm_export_region *e_reg)
+{
+	struct ummu_matt_domain domain = {};
+
+	if (!e_reg->gsva_matt_mapped)
+		return;
+
+	domain.l_tid = e_reg->tokenid;
+	domain.r_tid = UMMU_INVALID_TID;
+	domain.mm = current->mm;
+	(void)ummu_sva_matt_unmap(&domain, e_reg->requested_uba,
+				  e_reg->region.mem_size);
+	e_reg->gsva_matt_mapped = false;
+	e_reg->uba = e_reg->dma_uba;
+}
+
 static int teardown_ummu(struct obmm_export_region *e_reg)
 {
 	int ret, rollback_ret;
+
+	teardown_gsva_fixed_uba(e_reg);
 
 	pr_debug("call external: dma_unmap_sgtable\n");
 	dma_unmap_sgtable(e_reg->ummu_dev, &e_reg->sgt, DMA_BIDIRECTIONAL, 0);
@@ -126,7 +176,7 @@ err_free_tdev:
 		pr_err("Failed to map sgtable on UMMU. ret=%pe\n", ERR_PTR(rollback_ret));
 		ret = -ENOTRECOVERABLE;
 	}
-	if (e_reg->uba != sg_dma_address(e_reg->sgt.sgl)) {
+	if (e_reg->dma_uba != sg_dma_address(e_reg->sgt.sgl)) {
 		pr_err("Tried remapping in UMMU on rollback but UBA changed.\n");
 		ret = -ENOTRECOVERABLE;
 		pr_debug("call external: dma_unmap_sgtable\n");
@@ -173,8 +223,14 @@ int obmm_export_common(struct obmm_export_region *e_reg)
 	if (ret)
 		goto free_memory;
 
+	ret = setup_gsva_fixed_uba(e_reg);
+	if (ret)
+		goto out_teardown_ummu;
+
 	return 0;
 
+out_teardown_ummu:
+	teardown_ummu(e_reg);
 free_memory:
 	free_export_memory(e_reg);
 

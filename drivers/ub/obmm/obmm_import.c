@@ -79,25 +79,63 @@ int obmm_unregister_unimport_callback(void)
 EXPORT_SYMBOL_GPL(obmm_unregister_unimport_callback);
 
 static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
-					   u64 *remote_uba, u32 *token_value)
+					  u64 *remote_uba, u32 *token_value,
+					  u64 *local_va, u64 *home_va,
+					  u64 *pte_offset, u32 *vmid, u32 *asid,
+					  u32 *tid, u32 *p_tag, u32 *cache_policy,
+					  u32 *map_source, u32 *address_profile,
+					  u32 *access_flags, u64 *gva_id)
 {
+	const struct obmm_sim_dec_import_priv_v2 *priv_v2;
 	const struct obmm_sim_dec_import_priv_v1 *priv;
 
 	*remote_uba = 0;
 	*token_value = 0;
+	*local_va = 0;
+	*home_va = 0;
+	*pte_offset = 0;
+	*vmid = 0;
+	*asid = 0;
+	*tid = 0;
+	*p_tag = 0;
+	*cache_policy = OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH;
+	*map_source = OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM;
+	*address_profile = OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA;
+	*access_flags = 0;
+	*gva_id = 0;
 
 	if (region->priv_len < sizeof(*priv))
 		return;
 
 	priv = (const struct obmm_sim_dec_import_priv_v1 *)region->priv;
-	if (priv->magic != OBMM_SIM_DEC_PRIV_MAGIC ||
-	    priv->version != OBMM_SIM_DEC_PRIV_VER_1)
-		return;
-	if (priv->len < sizeof(*priv))
+	if (priv->magic != OBMM_SIM_DEC_PRIV_MAGIC || priv->len < sizeof(*priv))
 		return;
 
-	*remote_uba = priv->remote_uba;
-	*token_value = priv->token_value;
+	if (priv->version == OBMM_SIM_DEC_PRIV_VER_1) {
+		*remote_uba = priv->remote_uba;
+		*token_value = priv->token_value;
+		return;
+	}
+
+	if (priv->version == OBMM_SIM_DEC_PRIV_VER_2 &&
+	    region->priv_len >= sizeof(*priv_v2) &&
+	    priv->len >= sizeof(*priv_v2)) {
+		priv_v2 = (const struct obmm_sim_dec_import_priv_v2 *)region->priv;
+		*remote_uba = priv_v2->remote_uba;
+		*token_value = priv_v2->token_value;
+		*local_va = priv_v2->local_va;
+		*home_va = priv_v2->home_va;
+		*pte_offset = priv_v2->pte_offset;
+		*vmid = priv_v2->vmid;
+		*asid = priv_v2->asid;
+		*tid = priv_v2->tid;
+		*p_tag = priv_v2->p_tag;
+		*cache_policy = priv_v2->cache_policy;
+		*map_source = priv_v2->map_source;
+		*address_profile = priv_v2->address_profile;
+		*access_flags = priv_v2->access_flags;
+		*gva_id = priv_v2->gva_id;
+	}
 }
 
 static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
@@ -106,6 +144,18 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	int (*cb)(void *) = NULL;
 	u64 remote_uba;
 	u32 token_value;
+	u64 local_va = 0;
+	u64 home_va = 0;
+	u64 pte_offset = 0;
+	u32 vmid = 0;
+	u32 asid = 0;
+	u32 tid = 0;
+	u32 p_tag = 0;
+	u32 cache_policy = OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH;
+	u32 map_source = OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM;
+	u32 address_profile = OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA;
+	u32 access_flags = 0;
+	u64 gva_id = 0;
 	int ret;
 
 	mutex_lock(&g_obmm_sim_dec_cb_lock);
@@ -114,9 +164,21 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	if (!cb)
 		return 0;
 
-	obmm_sim_dec_parse_import_priv(&i_reg->region, &remote_uba, &token_value);
+	obmm_sim_dec_parse_import_priv(&i_reg->region, &remote_uba, &token_value,
+				      &local_va, &home_va, &pte_offset, &vmid,
+				      &asid, &tid, &p_tag, &cache_policy,
+				      &map_source, &address_profile, &access_flags,
+				      &gva_id);
 	if (!remote_uba) {
 		pr_err("sim decoder map requires remote_uba in import priv.\n");
+		return -EINVAL;
+	}
+	if (address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY &&
+	    (pte_offset != 0 || local_va != home_va ||
+	     local_va != remote_uba)) {
+		pr_err("GSVA identity mapping requires local_va/home_va/remote_uba be equal and pte_offset 0: "
+		       "local_va=%#llx home_va=%#llx remote_uba=%#llx pte_offset=%#llx\n",
+		       local_va, home_va, remote_uba, pte_offset);
 		return -EINVAL;
 	}
 
@@ -131,6 +193,18 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	memcpy(info.deid, i_reg->deid, sizeof(info.deid));
 	info.upi = 0;
 	info.src_eid = 0;
+	info.local_va = local_va;
+	info.home_va = home_va;
+	info.pte_offset = pte_offset;
+	info.vmid = vmid;
+	info.asid = asid;
+	info.tid = tid;
+	info.p_tag = p_tag;
+	info.cache_policy = cache_policy;
+	info.map_source = map_source;
+	info.address_profile = address_profile;
+	info.access_flags = access_flags;
+	info.gva_id = gva_id;
 
 	ret = cb(&info);
 	if (ret) {
@@ -608,6 +682,18 @@ static int init_import_region_from_cmd(const struct obmm_cmd_import *param,
 	ret = set_obmm_region_priv(region, param->priv_len, param->priv);
 	if (ret)
 		return ret;
+
+	if (param->priv_len >= sizeof(struct obmm_sim_dec_import_priv_v2)) {
+		const struct obmm_sim_dec_import_priv_v2 *priv_v2 =
+			(const struct obmm_sim_dec_import_priv_v2 *)region->priv;
+
+		if (priv_v2->magic == OBMM_SIM_DEC_PRIV_MAGIC &&
+		    priv_v2->version == OBMM_SIM_DEC_PRIV_VER_2 &&
+		    priv_v2->len >= sizeof(*priv_v2) &&
+		    priv_v2->address_profile ==
+			    OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY)
+			region->flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;
+	}
 
 	if (!validate_import_region(i_reg))
 		return -EINVAL;

@@ -24,26 +24,58 @@ static struct ub_sim_decoder *g_decoder;
 static int ub_sim_decoder_obmm_import(void *import_info)
 {
 	struct obmm_sim_dec_import_info *info = import_info;
-	struct sim_dec_map_req req = { 0 };
+	struct sim_dec_map_req map_req = { 0 };
+	struct sim_dec_gva_map_req gva_req = { 0 };
 	u64 map_id = 0;
 	int ret;
+	bool use_gva_map;
 
 	if (!info || !g_decoder || !g_decoder->enabled)
 		return -EINVAL;
 
-	req.local_pa = info->local_pa;
-	req.size = info->size;
-	req.remote_uba = info->remote_uba;
-	req.token_id = info->token_id;
-	req.token_value = info->token_value;
-	req.scna = info->scna;
-	req.dcna = info->dcna;
-	memcpy(req.seid, info->seid, sizeof(req.seid));
-	memcpy(req.deid, info->deid, sizeof(req.deid));
-	req.upi = info->upi;
-	req.src_eid = info->src_eid;
+	map_req.local_pa = info->local_pa;
+	map_req.size = info->size;
+	map_req.remote_uba = info->remote_uba;
+	map_req.token_id = info->token_id;
+	map_req.token_value = info->token_value;
+	map_req.scna = info->scna;
+	map_req.dcna = info->dcna;
+	memcpy(map_req.seid, info->seid, sizeof(map_req.seid));
+	memcpy(map_req.deid, info->deid, sizeof(map_req.deid));
+	map_req.upi = info->upi;
+	map_req.src_eid = info->src_eid;
 
-	ret = ub_sim_decoder_map(&g_decoder->service, &req, &map_id);
+	use_gva_map = (info->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER) ||
+		(info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) ||
+		(info->local_va != 0 || info->home_va != 0 ||
+		 info->pte_offset != 0 || info->vmid != 0 || info->asid != 0 ||
+		 info->tid != 0 || info->p_tag != 0 ||
+		 info->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH ||
+		 info->access_flags != 0 || info->gva_id != 0);
+
+	if (use_gva_map) {
+		gva_req.map_req = map_req;
+		gva_req.local_va = info->local_va;
+		gva_req.home_va = info->home_va;
+		gva_req.pte_offset = info->pte_offset;
+		gva_req.vmid = info->vmid;
+		gva_req.asid = info->asid;
+		gva_req.tid = info->tid;
+		gva_req.p_tag = info->p_tag;
+		gva_req.cache_policy = info->cache_policy;
+		gva_req.map_source = info->map_source;
+		gva_req.address_profile = info->address_profile;
+		gva_req.access_flags = info->access_flags;
+		gva_req.gva_id = info->gva_id;
+
+		ret = ub_sim_decoder_gva_map(&g_decoder->service, &gva_req, &map_id);
+		if (ret == -ENOTSUPP) {
+			pr_info("UB SIM Decoder: no GVA map backend, fallback to legacy map\n");
+			ret = ub_sim_decoder_map(&g_decoder->service, &map_req, &map_id);
+		}
+	} else {
+		ret = ub_sim_decoder_map(&g_decoder->service, &map_req, &map_id);
+	}
 	if (ret) {
 		pr_err("UB SIM Decoder: OBMM import map failed: %pe\n",
 		       ERR_PTR(ret));
@@ -102,6 +134,13 @@ static int ub_sim_decoder_init(void)
 		goto err_service;
 	}
 
+	ret = ub_sim_decoder_proc_init(&g_decoder->service);
+	if (ret < 0) {
+		pr_err("UB SIM Decoder: failed to init proc diagnostics: %pe\n",
+		       ERR_PTR(ret));
+		goto err_adapter;
+	}
+
 	/* Register OBMM callback */
 	ret = obmm_register_import_callback(ub_sim_decoder_obmm_import);
 	if (ret < 0) {
@@ -118,6 +157,8 @@ static int ub_sim_decoder_init(void)
 
 	return 0;
 
+err_adapter:
+	ub_sim_dec_ctrl_adapter_exit(&g_decoder->adapter);
 err_service:
 	ub_sim_decoder_service_exit(&g_decoder->service);
 err_free:
@@ -135,6 +176,7 @@ static void ub_sim_decoder_exit(void)
 	obmm_unregister_unimport_callback();
 	obmm_unregister_import_callback();
 
+	ub_sim_decoder_proc_exit();
 	ub_sim_dec_ctrl_adapter_exit(&g_decoder->adapter);
 	ub_sim_decoder_service_exit(&g_decoder->service);
 

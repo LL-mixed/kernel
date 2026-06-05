@@ -18,6 +18,7 @@
 #include <linux/rwlock.h>
 #include <linux/idr.h>
 #include <linux/acpi.h>
+#include <linux/overflow.h>
 
 #include <ub/ubus/ub-mem-decoder.h>
 #include <ub/ubus/ubus.h>
@@ -38,6 +39,90 @@
 #include "../ubus/sim/ub_sim_decoder.h"
 
 size_t __obmm_memseg_size;
+static DEFINE_MUTEX(obmm_gsva_aperture_lock);
+static struct obmm_cmd_gsva_aperture obmm_gsva_aperture;
+
+bool obmm_gsva_aperture_overlaps(unsigned long start, unsigned long end)
+{
+	u64 base, size, aperture_end;
+	bool overlaps = false;
+
+	if (start >= end)
+		return false;
+
+	mutex_lock(&obmm_gsva_aperture_lock);
+	if (!(obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE))
+		goto out;
+	base = obmm_gsva_aperture.base;
+	size = obmm_gsva_aperture.size;
+	if (check_add_overflow(base, size, &aperture_end))
+		goto out;
+	overlaps = (u64)start < aperture_end && (u64)end > base;
+out:
+	mutex_unlock(&obmm_gsva_aperture_lock);
+	return overlaps;
+}
+
+static int obmm_gsva_validate_aperture(const struct obmm_cmd_gsva_aperture *cmd)
+{
+	u64 end;
+
+	if (!cmd->size || !PAGE_ALIGNED(cmd->base) || !PAGE_ALIGNED(cmd->size))
+		return -EINVAL;
+	if (!cmd->node_count || cmd->node_id >= cmd->node_count ||
+	    cmd->node_count > OBMM_BOOTSTRAP_MAX_NODES)
+		return -EINVAL;
+	if (check_add_overflow(cmd->base, cmd->size, &end))
+		return -EINVAL;
+	return 0;
+}
+
+static int obmm_gsva_aperture_register(const struct obmm_cmd_gsva_aperture *cmd)
+{
+	int ret;
+
+	ret = obmm_gsva_validate_aperture(cmd);
+	if (ret)
+		return ret;
+
+	mutex_lock(&obmm_gsva_aperture_lock);
+	if ((obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE) &&
+	    (obmm_gsva_aperture.base != cmd->base ||
+	     obmm_gsva_aperture.size != cmd->size ||
+	     obmm_gsva_aperture.generation != cmd->generation)) {
+		mutex_unlock(&obmm_gsva_aperture_lock);
+		return -EBUSY;
+	}
+
+	obmm_gsva_aperture = *cmd;
+	obmm_gsva_aperture.flags |= OBMM_GSVA_APERTURE_F_ACTIVE;
+	mutex_unlock(&obmm_gsva_aperture_lock);
+
+	pr_info("GSVA aperture registered base=%#llx size=%#llx generation=%#llx node=%u/%u\n",
+		cmd->base, cmd->size, cmd->generation, cmd->node_id,
+		cmd->node_count);
+	return 0;
+}
+
+static void obmm_gsva_aperture_query(struct obmm_cmd_gsva_aperture *cmd)
+{
+	mutex_lock(&obmm_gsva_aperture_lock);
+	*cmd = obmm_gsva_aperture;
+	mutex_unlock(&obmm_gsva_aperture_lock);
+}
+
+static int obmm_gsva_aperture_clear(const struct obmm_cmd_gsva_aperture *cmd)
+{
+	mutex_lock(&obmm_gsva_aperture_lock);
+	if ((obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE) &&
+	    cmd->generation && obmm_gsva_aperture.generation != cmd->generation) {
+		mutex_unlock(&obmm_gsva_aperture_lock);
+		return -EINVAL;
+	}
+	memset(&obmm_gsva_aperture, 0, sizeof(obmm_gsva_aperture));
+	mutex_unlock(&obmm_gsva_aperture_lock);
+	return 0;
+}
 
 /*
  * OBMM centers around regions -- "struct obmm_region". Each region represents
@@ -486,6 +571,7 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_preimport preimport;
 		struct obmm_cmd_bootstrap_publish bootstrap_publish;
 		struct obmm_cmd_bootstrap_lookup bootstrap_lookup;
+		struct obmm_cmd_gsva_aperture gsva_aperture;
 	} cmd_param;
 
 	switch (cmd) {
@@ -663,6 +749,39 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 			pr_err("failed to write bootstrap lookup result\n");
 			return -EFAULT;
 		}
+	} break;
+	case OBMM_CMD_GSVA_APERTURE_REGISTER: {
+		ret = (int)copy_from_user(&cmd_param.gsva_aperture,
+					  (void __user *)arg,
+					  sizeof(struct obmm_cmd_gsva_aperture));
+		if (ret) {
+			pr_err("failed to load gsva aperture argument\n");
+			return -EFAULT;
+		}
+
+		ret = obmm_gsva_aperture_register(&cmd_param.gsva_aperture);
+	} break;
+	case OBMM_CMD_GSVA_APERTURE_QUERY: {
+		obmm_gsva_aperture_query(&cmd_param.gsva_aperture);
+
+		ret = (int)copy_to_user((void __user *)arg,
+					&cmd_param.gsva_aperture,
+					sizeof(struct obmm_cmd_gsva_aperture));
+		if (ret) {
+			pr_err("failed to write gsva aperture query result\n");
+			return -EFAULT;
+		}
+	} break;
+	case OBMM_CMD_GSVA_APERTURE_CLEAR: {
+		ret = (int)copy_from_user(&cmd_param.gsva_aperture,
+					  (void __user *)arg,
+					  sizeof(struct obmm_cmd_gsva_aperture));
+		if (ret) {
+			pr_err("failed to load gsva aperture clear argument\n");
+			return -EFAULT;
+		}
+
+		ret = obmm_gsva_aperture_clear(&cmd_param.gsva_aperture);
 	} break;
 	default:
 		ret = -ENOTTY;

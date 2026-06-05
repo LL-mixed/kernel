@@ -65,6 +65,7 @@ enum obmm_mmap_granu {
 #define OBMM_REGION_FLAG_MEMORY_FROM_USER	0x4
 #define OBMM_REGION_FLAG_FAST_ALLOC		0x8
 #define OBMM_REGION_FLAG_PREIMPORT		0x10
+#define OBMM_REGION_FLAG_GSVA_SEGMENT		0x20
 
 #define OBMM_INVALID_REGIONID	0
 #define OBMM_MIN_VALID_REGIONID 1
@@ -146,6 +147,12 @@ static inline bool region_fast_alloc(const struct obmm_region *reg)
 {
 	return reg->flags & OBMM_REGION_FLAG_FAST_ALLOC;
 }
+static inline bool region_gsva_segment(const struct obmm_region *reg)
+{
+	return reg->flags & OBMM_REGION_FLAG_GSVA_SEGMENT;
+}
+
+bool obmm_gsva_aperture_overlaps(unsigned long start, unsigned long end);
 
 struct obmm_import_region {
 	struct obmm_region region;
@@ -209,6 +216,10 @@ struct obmm_export_region {
 
 	unsigned int tokenid;
 	u64 uba;
+	u64 dma_uba;
+	u64 requested_uba;
+	bool gsva_fixed_uba;
+	bool gsva_matt_mapped;
 	unsigned int vendor_len;
 	void *vendor_info;
 	int affinity;
