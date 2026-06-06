@@ -95,6 +95,12 @@ struct obmm_region {
 	/* the total size of all memory segments included in meminfo */
 	u64 mem_size;
 	/*
+	 * GSVA lease contract for OBMM shmdev mmap.  Valid only when
+	 * OBMM_REGION_FLAG_GSVA_SEGMENT is set.
+	 */
+	u64 gsva_base;
+	u64 gsva_size;
+	/*
 	 * current mapping mode.
 	 * init: mmap_mode = OBMM_MMAP_INIT
 	 * cc-mmap: mmap_mode = OBMM_MMAP_NORMAL

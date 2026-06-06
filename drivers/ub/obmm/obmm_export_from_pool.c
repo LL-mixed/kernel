@@ -291,6 +291,8 @@ static struct obmm_export_region *alloc_region_from_cmd(struct obmm_cmd_export *
 		e_reg->gsva_fixed_uba = true;
 		e_reg->requested_uba = cmd_export->uba;
 		e_reg->region.flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;
+		e_reg->region.gsva_base = cmd_export->uba;
+		e_reg->region.gsva_size = total_size;
 	}
 	/* compaction */
 	while (e_reg->node_count - 1 > 0 && e_reg->node_mem_size[e_reg->node_count - 1] == 0)

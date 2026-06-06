@@ -234,6 +234,7 @@ struct obmm_cmd_preimport {
 #define OBMM_UNPREIMPORT_FLAG_MASK	(0UL)
 
 #define OBMM_MMAP_FLAG_HUGETLB_PMD (1UL << 63)
+#define OBMM_MMAP_FLAG_GSVA        (1UL << 62)
 
 #if defined(__cplusplus)
 }

@@ -8,6 +8,7 @@
 #include <asm/tlbflush.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
+#include <linux/overflow.h>
 
 #include "obmm_cache.h"
 #include "obmm_sysfs.h"
@@ -310,6 +311,8 @@ static int obmm_shm_fops_mmap(struct file *file, struct vm_area_struct *vma)
 	enum obmm_mmap_granu mmap_granu, init_mmap_granu;
 	int ret;
 	bool cacheable, o_sync;
+	bool gsva_mmap;
+	u64 expected_start;
 
 	print_mmap_param(file, vma);
 	if (!region_allow_mmap(reg)) {
@@ -325,9 +328,33 @@ static int obmm_shm_fops_mmap(struct file *file, struct vm_area_struct *vma)
 	o_sync = file->f_flags & O_SYNC;
 	size = vma->vm_end - vma->vm_start;
 	offset = vma->vm_pgoff << PAGE_SHIFT;
+	gsva_mmap = !!(offset & OBMM_MMAP_FLAG_GSVA);
+	offset &= ~OBMM_MMAP_FLAG_GSVA;
 
-	if (!region_gsva_segment(reg) &&
-	    obmm_gsva_aperture_overlaps(vma->vm_start, vma->vm_end)) {
+	if (gsva_mmap) {
+		if (!region_gsva_segment(reg)) {
+			pr_err("mmap region %d: MAP_GSVA requested for non-GSVA region\n",
+			       reg->regionid);
+			return -EINVAL;
+		}
+		if (!reg->gsva_size || offset >= reg->gsva_size ||
+		    size > reg->gsva_size - offset ||
+		    check_add_overflow(reg->gsva_base, (u64)offset,
+				       &expected_start) ||
+		    expected_start != (u64)vma->vm_start ||
+		    !obmm_gsva_aperture_contains(expected_start, size)) {
+			pr_err("mmap region %d: MAP_GSVA lease mismatch vma=[%#lx,%#lx) "
+			       "offset=%#lx gsva=[%#llx,%#llx)\n",
+			       reg->regionid, vma->vm_start, vma->vm_end,
+			       offset, reg->gsva_base,
+			       reg->gsva_base + reg->gsva_size);
+			return -EINVAL;
+		}
+	} else if (region_gsva_segment(reg)) {
+		pr_err("mmap region %d: GSVA segment requires OBMM_MMAP_FLAG_GSVA\n",
+		       reg->regionid);
+		return -EINVAL;
+	} else if (obmm_gsva_aperture_overlaps(vma->vm_start, vma->vm_end)) {
 		pr_err("mmap region %d: vma [%#lx, %#lx) overlaps active GSVA aperture\n",
 		       reg->regionid, vma->vm_start, vma->vm_end);
 		return -EINVAL;

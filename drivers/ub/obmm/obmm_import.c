@@ -706,6 +706,8 @@ static int init_import_region_from_cmd(const struct obmm_cmd_import *param,
 				return -EINVAL;
 			}
 			region->flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;
+			region->gsva_base = priv_v2->local_va;
+			region->gsva_size = param->length;
 		}
 	}
 
