@@ -63,6 +63,37 @@ out:
 	return overlaps;
 }
 
+bool obmm_gsva_aperture_contains(u64 base, u64 size)
+{
+	u64 end, aperture_base, aperture_end;
+	bool contains = false;
+
+	if (!size || check_add_overflow(base, size, &end))
+		return false;
+
+	mutex_lock(&obmm_gsva_aperture_lock);
+	if (!(obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE))
+		goto out;
+	aperture_base = obmm_gsva_aperture.base;
+	if (check_add_overflow(aperture_base, obmm_gsva_aperture.size,
+			       &aperture_end))
+		goto out;
+	contains = base >= aperture_base && end <= aperture_end;
+out:
+	mutex_unlock(&obmm_gsva_aperture_lock);
+	return contains;
+}
+
+void obmm_gsva_aperture_snapshot(struct obmm_cmd_gsva_aperture *cmd)
+{
+	if (!cmd)
+		return;
+
+	mutex_lock(&obmm_gsva_aperture_lock);
+	*cmd = obmm_gsva_aperture;
+	mutex_unlock(&obmm_gsva_aperture_lock);
+}
+
 static int obmm_gsva_validate_aperture(const struct obmm_cmd_gsva_aperture *cmd)
 {
 	u64 end;
@@ -106,9 +137,7 @@ static int obmm_gsva_aperture_register(const struct obmm_cmd_gsva_aperture *cmd)
 
 static void obmm_gsva_aperture_query(struct obmm_cmd_gsva_aperture *cmd)
 {
-	mutex_lock(&obmm_gsva_aperture_lock);
-	*cmd = obmm_gsva_aperture;
-	mutex_unlock(&obmm_gsva_aperture_lock);
+	obmm_gsva_aperture_snapshot(cmd);
 }
 
 static int obmm_gsva_aperture_clear(const struct obmm_cmd_gsva_aperture *cmd)

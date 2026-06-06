@@ -9,6 +9,7 @@
 #ifndef __UB_SIM_DECODER_H__
 #define __UB_SIM_DECODER_H__
 
+#include <linux/bits.h>
 #include <linux/types.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
@@ -72,6 +73,19 @@ enum sim_dec_address_profile {
 	SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY = 2,
 };
 
+enum sim_dec_cache_policy {
+	SIM_DEC_CACHE_POLICY_NC = 0,
+	SIM_DEC_CACHE_POLICY_WRITE_THROUGH = 1,
+	SIM_DEC_CACHE_POLICY_READ_CACHE = 2,
+	SIM_DEC_CACHE_POLICY_WRITE_BACK = 3,
+};
+
+enum sim_dec_access_flags {
+	SIM_DEC_ACCESS_READ_ONLY = BIT(0),
+	SIM_DEC_ACCESS_EXPLICIT_SYNC = BIT(1),
+	SIM_DEC_ACCESS_FAULT_UPI_MISMATCH = BIT(31),
+};
+
 struct sim_dec_gva_map_req {
 	struct sim_dec_map_req map_req;
 	u64	local_va;
@@ -93,6 +107,10 @@ struct sim_dec_map_resp {
 	u64	map_id;		/* Unique map identifier */
 	u32	status;
 	u32	rsvd;
+	u32	p_tag;
+	u32	mp_ubc_port;
+	u32	mp_lane;
+	u32	mp_link_id;
 };
 
 /* UNMAP request payload */
@@ -149,6 +167,14 @@ struct sim_dec_obmm_bootstrap_lookup_resp {
 	struct sim_dec_obmm_bootstrap_record records[SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES];
 };
 
+enum ub_sim_dec_map_state {
+	UB_SIM_DEC_MAP_CREATING = 0,
+	UB_SIM_DEC_MAP_ACTIVE = 1,
+	UB_SIM_DEC_MAP_STALE = 2,
+	UB_SIM_DEC_MAP_ERROR = 3,
+	UB_SIM_DEC_MAP_RETIRED = 4,
+};
+
 /* Map entry maintained by service layer */
 struct ub_sim_dec_map_entry {
 	struct list_head	list;
@@ -156,6 +182,12 @@ struct ub_sim_dec_map_entry {
 	struct sim_dec_gva_map_req	req;
 	unsigned long		create_time;
 	u32			ref_count;
+	enum ub_sim_dec_map_state state;
+	int			last_error;
+	u32			effective_p_tag;
+	u32			mp_ubc_port;
+	u32			mp_lane;
+	u32			mp_link_id;
 	bool			active;
 };
 
@@ -222,7 +254,8 @@ int ub_sim_dec_send_cmd(struct ub_sim_dec_ctrl_adapter *adapter,
 int ub_sim_dec_backend_map(struct ub_sim_decoder *dec,
 			   struct sim_dec_map_req *req, u64 *map_id);
 int ub_sim_dec_backend_gva_map(struct ub_sim_decoder *dec,
-			       struct sim_dec_gva_map_req *req, u64 *map_id);
+			       struct sim_dec_gva_map_req *req, u64 *map_id,
+			       struct sim_dec_map_resp *resp_out);
 int ub_sim_dec_backend_unmap(struct ub_sim_decoder *dec, u32 scna, u64 map_id);
 int ub_sim_dec_backend_sync(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			    u64 offset, u64 len);

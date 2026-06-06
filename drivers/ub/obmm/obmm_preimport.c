@@ -296,6 +296,32 @@ static const struct seq_operations preimp_info_sops = {
 	.show = preimp_info_seq_show,
 };
 
+static int gsva_aperture_proc_show(struct seq_file *m, void *v __always_unused)
+{
+	struct obmm_cmd_gsva_aperture aperture = { 0 };
+
+	obmm_gsva_aperture_snapshot(&aperture);
+	seq_puts(m, "active base size generation node_id node_count flags\n");
+	seq_printf(m, "%u %#llx %#llx %#llx %u %u %#llx\n",
+		   !!(aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE),
+		   aperture.base, aperture.size, aperture.generation,
+		   aperture.node_id, aperture.node_count, aperture.flags);
+	return 0;
+}
+
+static int gsva_aperture_proc_open(struct inode *inode __always_unused,
+				   struct file *file)
+{
+	return single_open(file, gsva_aperture_proc_show, NULL);
+}
+
+static const struct proc_ops gsva_aperture_proc_ops = {
+	.proc_open = gsva_aperture_proc_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
+};
+
 static int init_preimport_info_seqfile(void)
 {
 	struct proc_dir_entry *p;
@@ -308,6 +334,14 @@ static int init_preimport_info_seqfile(void)
 	p = proc_create_seq("obmm/preimport_info", 0, NULL, &preimp_info_sops);
 	if (!p) {
 		pr_err("failed to init obmm proc file.\n");
+
+		remove_proc_subtree("obmm", NULL);
+		return -ENOMEM;
+	}
+	p = proc_create("obmm/gsva_aperture", 0, NULL,
+			&gsva_aperture_proc_ops);
+	if (!p) {
+		pr_err("failed to init obmm gsva aperture proc file.\n");
 
 		remove_proc_subtree("obmm", NULL);
 		return -ENOMEM;

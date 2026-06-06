@@ -282,6 +282,12 @@ static struct obmm_export_region *alloc_region_from_cmd(struct obmm_cmd_export *
 			kfree(e_reg);
 			return ERR_PTR(-EINVAL);
 		}
+		if (!obmm_gsva_aperture_contains(cmd_export->uba, total_size)) {
+			pr_err("GSVA fixed UBA export outside active aperture: uba=%#llx size=%#lx\n",
+			       cmd_export->uba, total_size);
+			kfree(e_reg);
+			return ERR_PTR(-EINVAL);
+		}
 		e_reg->gsva_fixed_uba = true;
 		e_reg->requested_uba = cmd_export->uba;
 		e_reg->region.flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;

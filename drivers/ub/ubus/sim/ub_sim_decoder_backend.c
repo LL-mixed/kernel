@@ -19,6 +19,26 @@ MODULE_PARM_DESC(backend_type, "Decoder backend: 0=SIM, 1=HW");
 /* Global decoder instance */
 struct ub_sim_decoder *g_ub_sim_decoder;
 
+static int sim_dec_status_to_errno(u32 status)
+{
+	switch (status) {
+	case SIM_DEC_STATUS_SUCCESS:
+		return 0;
+	case SIM_DEC_STATUS_INVALID_PARAM:
+		return -EINVAL;
+	case SIM_DEC_STATUS_RESOURCE_BUSY:
+		return -EBUSY;
+	case SIM_DEC_STATUS_BACKEND_ERROR:
+		return -EIO;
+	case SIM_DEC_STATUS_TIMEOUT:
+		return -ETIMEDOUT;
+	case SIM_DEC_STATUS_NOT_SUPPORTED:
+		return -ENOTSUPP;
+	default:
+		return -EIO;
+	}
+}
+
 /* Backend-specific implementations */
 static int sim_backend_map(struct ub_sim_decoder *dec,
 			   struct sim_dec_map_req *req, u64 *map_id)
@@ -35,7 +55,7 @@ static int sim_backend_map(struct ub_sim_decoder *dec,
 	if (resp.status != SIM_DEC_STATUS_SUCCESS) {
 		pr_err("UB SIM Decoder: backend MAP failed status=%u\n",
 			resp.status);
-		return -EIO;
+		return sim_dec_status_to_errno(resp.status);
 	}
 
 	*map_id = resp.map_id;
@@ -43,7 +63,8 @@ static int sim_backend_map(struct ub_sim_decoder *dec,
 }
 
 static int sim_backend_gva_map(struct ub_sim_decoder *dec,
-			       struct sim_dec_gva_map_req *req, u64 *map_id)
+			       struct sim_dec_gva_map_req *req, u64 *map_id,
+			       struct sim_dec_map_resp *resp_out)
 {
 	struct sim_dec_map_resp resp = {0};
 	int ret;
@@ -57,10 +78,12 @@ static int sim_backend_gva_map(struct ub_sim_decoder *dec,
 	if (resp.status != SIM_DEC_STATUS_SUCCESS) {
 		pr_err("UB SIM Decoder: backend GVA MAP failed status=%u\n",
 		       resp.status);
-		return -EIO;
+		return sim_dec_status_to_errno(resp.status);
 	}
 
 	*map_id = resp.map_id;
+	if (resp_out)
+		*resp_out = resp;
 	return 0;
 }
 
@@ -173,14 +196,15 @@ int ub_sim_dec_backend_map(struct ub_sim_decoder *dec,
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_map);
 
 int ub_sim_dec_backend_gva_map(struct ub_sim_decoder *dec,
-			       struct sim_dec_gva_map_req *req, u64 *map_id)
+			       struct sim_dec_gva_map_req *req, u64 *map_id,
+			       struct sim_dec_map_resp *resp_out)
 {
 	if (!dec || !req || !map_id)
 		return -EINVAL;
 
 	switch (dec->backend_type) {
 	case UB_SIM_DEC_BACKEND_SIM:
-		return sim_backend_gva_map(dec, req, map_id);
+		return sim_backend_gva_map(dec, req, map_id, resp_out);
 	case UB_SIM_DEC_BACKEND_HW:
 		return -ENOTSUPP;
 	default:

@@ -153,6 +153,8 @@ static inline bool region_gsva_segment(const struct obmm_region *reg)
 }
 
 bool obmm_gsva_aperture_overlaps(unsigned long start, unsigned long end);
+bool obmm_gsva_aperture_contains(u64 base, u64 size);
+void obmm_gsva_aperture_snapshot(struct obmm_cmd_gsva_aperture *cmd);
 
 struct obmm_import_region {
 	struct obmm_region region;

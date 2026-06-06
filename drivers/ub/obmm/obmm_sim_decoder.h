@@ -5,6 +5,7 @@
 #ifndef OBMM_SIM_DECODER_H
 #define OBMM_SIM_DECODER_H
 
+#include <linux/bits.h>
 #include <linux/types.h>
 
 #define OBMM_SIM_DEC_PRIV_MAGIC 0x53444950U /* "SDIP" */
@@ -22,6 +23,12 @@
 /* access/semantics profile */
 #define OBMM_SIM_DEC_CACHE_POLICY_NC 0
 #define OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH 1
+#define OBMM_SIM_DEC_CACHE_POLICY_READ_CACHE 2
+#define OBMM_SIM_DEC_CACHE_POLICY_WRITE_BACK 3
+
+#define OBMM_SIM_DEC_ACCESS_READ_ONLY BIT(0)
+#define OBMM_SIM_DEC_ACCESS_EXPLICIT_SYNC BIT(1)
+#define OBMM_SIM_DEC_ACCESS_FAULT_UPI_MISMATCH BIT(31)
 
 struct obmm_sim_dec_import_priv_v2 {
 	u32 magic;

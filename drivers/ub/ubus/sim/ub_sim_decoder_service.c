@@ -19,6 +19,24 @@ static struct ub_sim_decoder_service *g_proc_service;
 static struct proc_dir_entry *g_proc_dir;
 static struct proc_dir_entry *g_proc_gva_routes;
 
+static const char *ub_sim_dec_map_state_name(enum ub_sim_dec_map_state state)
+{
+	switch (state) {
+	case UB_SIM_DEC_MAP_CREATING:
+		return "creating";
+	case UB_SIM_DEC_MAP_ACTIVE:
+		return "active";
+	case UB_SIM_DEC_MAP_STALE:
+		return "stale";
+	case UB_SIM_DEC_MAP_ERROR:
+		return "error";
+	case UB_SIM_DEC_MAP_RETIRED:
+		return "retired";
+	default:
+		return "unknown";
+	}
+}
+
 int ub_sim_decoder_service_init(struct ub_sim_decoder_service *svc)
 {
 	if (!svc)
@@ -39,10 +57,11 @@ static int ub_sim_decoder_gva_routes_show(struct seq_file *m, void *v)
 	struct ub_sim_decoder_service *svc = m->private;
 	struct ub_sim_dec_map_entry *entry;
 
-	seq_puts(m, "map_id active map_source address_profile vmid asid "
+	seq_puts(m, "map_id state last_error active map_source address_profile vmid asid "
 		 "local_pa size local_va home_va remote_uba pte_offset "
-		 "scna dcna tid upi p_tag token_id token_value cache_policy "
-		 "access_flags gva_id\n");
+		 "scna dcna tid upi request_p_tag effective_p_tag "
+		 "mp_ubc_port mp_lane mp_link_id token_id token_value "
+		 "cache_policy access_flags gva_id\n");
 
 	if (!svc)
 		return 0;
@@ -52,15 +71,18 @@ static int ub_sim_decoder_gva_routes_show(struct seq_file *m, void *v)
 		const struct sim_dec_gva_map_req *req = &entry->req;
 
 		seq_printf(m,
-			   "%llx %u %u %u %u %u %llx %llx %llx %llx %llx %llx "
-			   "%x %x %u %u %u %u %u %u %u %llx\n",
-			   entry->map_id, entry->active ? 1 : 0,
+			   "%llx %s %d %u %u %u %u %u %llx %llx %llx %llx %llx %llx "
+			   "%x %x %u %u %u %u %u %u %u %u %u %u %u %llx\n",
+			   entry->map_id, ub_sim_dec_map_state_name(entry->state),
+			   entry->last_error, entry->active ? 1 : 0,
 			   req->map_source, req->address_profile,
 			   req->vmid, req->asid, req->map_req.local_pa,
 			   req->map_req.size, req->local_va, req->home_va,
 			   req->map_req.remote_uba, req->pte_offset,
 			   req->map_req.scna, req->map_req.dcna,
 			   req->tid, req->map_req.upi, req->p_tag,
+			   entry->effective_p_tag, entry->mp_ubc_port,
+			   entry->mp_lane, entry->mp_link_id,
 			   req->map_req.token_id, req->map_req.token_value,
 			   req->cache_policy, req->access_flags, req->gva_id);
 	}
@@ -158,8 +180,9 @@ find_map_entry(struct ub_sim_decoder_service *svc, u64 map_id)
 }
 
 /* Check for overlapping mappings */
-static bool check_overlap(struct ub_sim_decoder_service *svc,
-			  struct sim_dec_map_req *req)
+static bool check_overlap_except(struct ub_sim_decoder_service *svc,
+				 struct sim_dec_map_req *req,
+				 const struct ub_sim_dec_map_entry *skip)
 {
 	struct ub_sim_dec_map_entry *entry;
 	u64 req_end = req->local_pa + req->size;
@@ -168,7 +191,11 @@ static bool check_overlap(struct ub_sim_decoder_service *svc,
 		u64 entry_end = entry->req.map_req.local_pa +
 			entry->req.map_req.size;
 
-		if (entry->active &&
+		if (entry != skip &&
+		    (entry->state == UB_SIM_DEC_MAP_CREATING ||
+		     entry->state == UB_SIM_DEC_MAP_ACTIVE ||
+		     entry->state == UB_SIM_DEC_MAP_STALE ||
+		     entry->state == UB_SIM_DEC_MAP_ERROR) &&
 		    !(req_end <= entry->req.map_req.local_pa ||
 		      req->local_pa >= entry_end)) {
 			pr_warn("UB SIM Decoder: PA overlap detected: "
@@ -179,6 +206,70 @@ static bool check_overlap(struct ub_sim_decoder_service *svc,
 		}
 	}
 	return false;
+}
+
+static bool check_overlap(struct ub_sim_decoder_service *svc,
+			  struct sim_dec_map_req *req)
+{
+	return check_overlap_except(svc, req, NULL);
+}
+
+static bool gva_route_blocks_overlap(const struct ub_sim_dec_map_entry *entry)
+{
+	return entry &&
+		(entry->state == UB_SIM_DEC_MAP_CREATING ||
+		 entry->state == UB_SIM_DEC_MAP_ACTIVE ||
+		 entry->state == UB_SIM_DEC_MAP_STALE ||
+		 entry->state == UB_SIM_DEC_MAP_ERROR);
+}
+
+static bool is_explicit_gva_route(const struct sim_dec_gva_map_req *req)
+{
+	return req &&
+		(req->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER ||
+		 req->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY);
+}
+
+static bool check_gva_route_overlap_except(struct ub_sim_decoder_service *svc,
+					   const struct sim_dec_gva_map_req *req,
+					   const struct ub_sim_dec_map_entry *skip)
+{
+	struct ub_sim_dec_map_entry *entry;
+	u64 req_end;
+
+	if (!is_explicit_gva_route(req))
+		return false;
+
+	req_end = req->map_req.remote_uba + req->map_req.size;
+	list_for_each_entry(entry, &svc->map_list, list) {
+		const struct sim_dec_gva_map_req *entry_req = &entry->req;
+		u64 entry_end;
+
+		if (entry == skip || !gva_route_blocks_overlap(entry) ||
+		    !is_explicit_gva_route(entry_req) ||
+		    entry_req->vmid != req->vmid ||
+		    entry_req->asid != req->asid)
+			continue;
+
+		entry_end = entry_req->map_req.remote_uba +
+			entry_req->map_req.size;
+		if (!(req_end <= entry_req->map_req.remote_uba ||
+		      req->map_req.remote_uba >= entry_end)) {
+			pr_warn("UB SIM Decoder: GVA route overlap detected: "
+				"vmid=%u asid=%u new_uba[%llx-%llx] existing_uba[%llx-%llx]\n",
+				req->vmid, req->asid, req->map_req.remote_uba,
+				req_end, entry_req->map_req.remote_uba,
+				entry_end);
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool check_gva_route_overlap(struct ub_sim_decoder_service *svc,
+				    const struct sim_dec_gva_map_req *req)
+{
+	return check_gva_route_overlap_except(svc, req, NULL);
 }
 
 int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
@@ -207,37 +298,11 @@ int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
 		return -EINVAL;
 	}
 
-	mutex_lock(&svc->lock);
-
-	/* Check for overlapping mappings */
-	if (check_overlap(svc, req)) {
-		mutex_unlock(&svc->lock);
-		return -EBUSY;
-	}
-	mutex_unlock(&svc->lock);
-
-	ret = ub_sim_dec_backend_map(g_ub_sim_decoder, req, &new_id);
-	if (ret) {
-		pr_err("UB SIM Decoder: backend map failed: %pe\n", ERR_PTR(ret));
-		return ret;
-	}
-
-	mutex_lock(&svc->lock);
-	if (check_overlap(svc, req)) {
-		mutex_unlock(&svc->lock);
-		(void)ub_sim_dec_backend_unmap(g_ub_sim_decoder, req->scna, new_id);
-		return -EBUSY;
-	}
-
-	/* Allocate new map entry */
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry) {
-		mutex_unlock(&svc->lock);
-		(void)ub_sim_dec_backend_unmap(g_ub_sim_decoder, req->scna, new_id);
+	if (!entry)
 		return -ENOMEM;
-	}
 
-	entry->map_id = new_id;
+	entry->map_id = 0;
 	memset(&entry->req, 0, sizeof(entry->req));
 	memcpy(&entry->req.map_req, req, sizeof(*req));
 	entry->req.local_va = 0;
@@ -254,9 +319,56 @@ int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
 	entry->req.gva_id = 0;
 	entry->create_time = jiffies;
 	entry->ref_count = 1;
-	entry->active = true;
+	entry->state = UB_SIM_DEC_MAP_CREATING;
+	entry->last_error = 0;
+	entry->active = false;
 
+	mutex_lock(&svc->lock);
+	if (check_overlap(svc, req)) {
+		mutex_unlock(&svc->lock);
+		kfree(entry);
+		return -EBUSY;
+	}
 	list_add_tail(&entry->list, &svc->map_list);
+	mutex_unlock(&svc->lock);
+
+	ret = ub_sim_dec_backend_map(g_ub_sim_decoder, req, &new_id);
+	if (ret) {
+		pr_err("UB SIM Decoder: backend map failed: %pe\n", ERR_PTR(ret));
+		mutex_lock(&svc->lock);
+		list_del(&entry->list);
+		mutex_unlock(&svc->lock);
+		kfree(entry);
+		return ret;
+	}
+
+	mutex_lock(&svc->lock);
+	if (check_overlap_except(svc, req, entry)) {
+		int rollback_ret;
+
+		entry->map_id = new_id;
+		entry->state = UB_SIM_DEC_MAP_ERROR;
+		entry->last_error = -EBUSY;
+		mutex_unlock(&svc->lock);
+		rollback_ret = ub_sim_dec_backend_unmap(g_ub_sim_decoder,
+							 req->scna, new_id);
+		if (rollback_ret) {
+			mutex_lock(&svc->lock);
+			entry->last_error = rollback_ret;
+			mutex_unlock(&svc->lock);
+			return -EBUSY;
+		}
+		mutex_lock(&svc->lock);
+		list_del(&entry->list);
+		mutex_unlock(&svc->lock);
+		kfree(entry);
+		return -EBUSY;
+	}
+
+	entry->map_id = new_id;
+	entry->state = UB_SIM_DEC_MAP_ACTIVE;
+	entry->last_error = 0;
+	entry->active = true;
 	*map_id = new_id;
 
 	mutex_unlock(&svc->lock);
@@ -274,6 +386,7 @@ int ub_sim_decoder_gva_map(struct ub_sim_decoder_service *svc,
 			   struct sim_dec_gva_map_req *req, u64 *map_id)
 {
 	struct ub_sim_dec_map_entry *entry;
+	struct sim_dec_map_resp backend_resp = {0};
 	u64 new_id;
 	int ret;
 
@@ -310,6 +423,27 @@ int ub_sim_decoder_gva_map(struct ub_sim_decoder_service *svc,
 		return -EINVAL;
 	}
 
+	if (req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_NC &&
+	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH &&
+	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_READ_CACHE &&
+	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_BACK) {
+		pr_err("UB SIM Decoder: unsupported GVA cache_policy %u\n",
+		       req->cache_policy);
+		return -EINVAL;
+	}
+
+	if (req->cache_policy == OBMM_SIM_DEC_CACHE_POLICY_READ_CACHE &&
+	    !(req->access_flags & OBMM_SIM_DEC_ACCESS_READ_ONLY)) {
+		pr_err("UB SIM Decoder: read_cache requires READ_ONLY access_flags\n");
+		return -EINVAL;
+	}
+
+	if (req->cache_policy == OBMM_SIM_DEC_CACHE_POLICY_WRITE_BACK &&
+	    !(req->access_flags & OBMM_SIM_DEC_ACCESS_EXPLICIT_SYNC)) {
+		pr_err("UB SIM Decoder: write_back requires EXPLICIT_SYNC access_flags\n");
+		return -EINVAL;
+	}
+
 	if (req->map_source == 0 ||
 	    req->map_source == OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM) {
 		/* allow explicit legacy profile */
@@ -323,54 +457,86 @@ int ub_sim_decoder_gva_map(struct ub_sim_decoder_service *svc,
 		return -EINVAL;
 	}
 
-	mutex_lock(&svc->lock);
+	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
+	if (!entry)
+		return -ENOMEM;
 
-	/* Check for overlapping mappings */
-	if (check_overlap(svc, &req->map_req)) {
+	entry->map_id = 0;
+	memcpy(&entry->req, req, sizeof(*req));
+	entry->create_time = jiffies;
+	entry->ref_count = 1;
+	entry->state = UB_SIM_DEC_MAP_CREATING;
+	entry->last_error = 0;
+	entry->active = false;
+
+	mutex_lock(&svc->lock);
+	if (check_overlap(svc, &req->map_req) ||
+	    check_gva_route_overlap(svc, req)) {
 		mutex_unlock(&svc->lock);
+		kfree(entry);
 		return -EBUSY;
 	}
+	list_add_tail(&entry->list, &svc->map_list);
 	mutex_unlock(&svc->lock);
 
-	ret = ub_sim_dec_backend_gva_map(g_ub_sim_decoder, req, &new_id);
+	ret = ub_sim_dec_backend_gva_map(g_ub_sim_decoder, req, &new_id,
+					 &backend_resp);
 	if (ret) {
 		pr_err("UB SIM Decoder: backend GVA map failed: %pe\n", ERR_PTR(ret));
+		mutex_lock(&svc->lock);
+		list_del(&entry->list);
+		mutex_unlock(&svc->lock);
+		kfree(entry);
 		return ret;
 	}
 
 	mutex_lock(&svc->lock);
-	if (check_overlap(svc, &req->map_req)) {
+	if (check_overlap_except(svc, &req->map_req, entry) ||
+	    check_gva_route_overlap_except(svc, req, entry)) {
+		int rollback_ret;
+
+		entry->map_id = new_id;
+		entry->state = UB_SIM_DEC_MAP_ERROR;
+		entry->last_error = -EBUSY;
 		mutex_unlock(&svc->lock);
-		(void)ub_sim_dec_backend_unmap(g_ub_sim_decoder, req->map_req.scna,
-					      new_id);
+		rollback_ret = ub_sim_dec_backend_unmap(g_ub_sim_decoder,
+							 req->map_req.scna,
+							 new_id);
+		if (rollback_ret) {
+			mutex_lock(&svc->lock);
+			entry->last_error = rollback_ret;
+			mutex_unlock(&svc->lock);
+			return -EBUSY;
+		}
+		mutex_lock(&svc->lock);
+		list_del(&entry->list);
+		mutex_unlock(&svc->lock);
+		kfree(entry);
 		return -EBUSY;
 	}
 
-	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
-	if (!entry) {
-		mutex_unlock(&svc->lock);
-		(void)ub_sim_dec_backend_unmap(g_ub_sim_decoder, req->map_req.scna,
-				      new_id);
-		return -ENOMEM;
-	}
-
 	entry->map_id = new_id;
-	memcpy(&entry->req, req, sizeof(*req));
-	entry->create_time = jiffies;
-	entry->ref_count = 1;
+	entry->state = UB_SIM_DEC_MAP_ACTIVE;
+	entry->last_error = 0;
+	entry->effective_p_tag = backend_resp.p_tag;
+	entry->mp_ubc_port = backend_resp.mp_ubc_port;
+	entry->mp_lane = backend_resp.mp_lane;
+	entry->mp_link_id = backend_resp.mp_link_id;
 	entry->active = true;
-
-	list_add_tail(&entry->list, &svc->map_list);
 	*map_id = new_id;
 
 	mutex_unlock(&svc->lock);
 
 	pr_info("UB SIM Decoder: gva map created id=%llx pa=%llx size=%llx "
-		"remote_uba=%llx token=%u vmid=%u asid=%u local_va=%llx home_va=%llx pte_offset=%llx address_profile=%u\n",
+		"remote_uba=%llx token=%u vmid=%u asid=%u local_va=%llx home_va=%llx "
+		"pte_offset=%llx address_profile=%u request_p_tag=%u effective_p_tag=%u "
+		"mp_ubc_port=%u mp_lane=%u mp_link_id=%u\n",
 		new_id, req->map_req.local_pa, req->map_req.size,
 		req->map_req.remote_uba, req->map_req.token_id,
 		req->vmid, req->asid, req->local_va, req->home_va,
-		req->pte_offset, req->address_profile);
+		req->pte_offset, req->address_profile, req->p_tag,
+		entry->effective_p_tag, entry->mp_ubc_port, entry->mp_lane,
+		entry->mp_link_id);
 
 	return 0;
 }
@@ -399,8 +565,19 @@ int ub_sim_decoder_unmap(struct ub_sim_decoder_service *svc, u64 map_id)
 	mutex_unlock(&svc->lock);
 
 	ret = ub_sim_dec_backend_unmap(g_ub_sim_decoder, scna, map_id);
-	if (ret)
+	if (ret) {
+		mutex_lock(&svc->lock);
+		entry = find_map_entry(svc, map_id);
+		if (entry) {
+			entry->state = UB_SIM_DEC_MAP_ERROR;
+			entry->last_error = ret;
+			entry->active = false;
+		}
+		mutex_unlock(&svc->lock);
+		pr_err("UB SIM Decoder: backend unmap failed map_id=%llx: %pe\n",
+		       map_id, ERR_PTR(ret));
 		return ret;
+	}
 
 	mutex_lock(&svc->lock);
 	entry = find_map_entry(svc, map_id);
@@ -408,6 +585,8 @@ int ub_sim_decoder_unmap(struct ub_sim_decoder_service *svc, u64 map_id)
 		mutex_unlock(&svc->lock);
 		return -ENOENT;
 	}
+	entry->state = UB_SIM_DEC_MAP_RETIRED;
+	entry->last_error = 0;
 	entry->active = false;
 	entry->ref_count--;
 	if (entry->ref_count == 0) {

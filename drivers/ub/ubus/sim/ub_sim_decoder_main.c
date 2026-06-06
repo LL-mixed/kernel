@@ -45,7 +45,9 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 	map_req.upi = info->upi;
 	map_req.src_eid = info->src_eid;
 
-	use_gva_map = (info->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER) ||
+	use_gva_map = (info->map_source == OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM &&
+		       info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA) ||
+		(info->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER) ||
 		(info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) ||
 		(info->local_va != 0 || info->home_va != 0 ||
 		 info->pte_offset != 0 || info->vmid != 0 || info->asid != 0 ||
@@ -69,7 +71,7 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		gva_req.gva_id = info->gva_id;
 
 		ret = ub_sim_decoder_gva_map(&g_decoder->service, &gva_req, &map_id);
-		if (ret == -ENOTSUPP) {
+		if (ret == -ENOTSUPP || ret == -EOPNOTSUPP) {
 			pr_info("UB SIM Decoder: no GVA map backend, fallback to legacy map\n");
 			ret = ub_sim_decoder_map(&g_decoder->service, &map_req, &map_id);
 		}

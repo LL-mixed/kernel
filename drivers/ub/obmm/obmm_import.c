@@ -691,8 +691,22 @@ static int init_import_region_from_cmd(const struct obmm_cmd_import *param,
 		    priv_v2->version == OBMM_SIM_DEC_PRIV_VER_2 &&
 		    priv_v2->len >= sizeof(*priv_v2) &&
 		    priv_v2->address_profile ==
-			    OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY)
+			    OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) {
+			if (priv_v2->pte_offset != 0 ||
+			    priv_v2->local_va != priv_v2->home_va ||
+			    priv_v2->local_va != priv_v2->remote_uba ||
+			    !obmm_gsva_aperture_contains(priv_v2->remote_uba,
+							 param->length)) {
+				pr_err("GSVA identity import outside active aperture or not identity: "
+				       "local_va=%#llx home_va=%#llx remote_uba=%#llx "
+				       "pte_offset=%#llx length=%#llx\n",
+				       priv_v2->local_va, priv_v2->home_va,
+				       priv_v2->remote_uba, priv_v2->pte_offset,
+				       param->length);
+				return -EINVAL;
+			}
 			region->flags |= OBMM_REGION_FLAG_GSVA_SEGMENT;
+		}
 	}
 
 	if (!validate_import_region(i_reg))
