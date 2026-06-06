@@ -45,8 +45,7 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 	map_req.upi = info->upi;
 	map_req.src_eid = info->src_eid;
 
-	use_gva_map = (info->map_source == OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM &&
-		       info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA) ||
+	use_gva_map =
 		(info->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER) ||
 		(info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) ||
 		(info->local_va != 0 || info->home_va != 0 ||
