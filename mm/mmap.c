@@ -85,6 +85,90 @@ static int mmap_consume_gsva_flag(struct file *file, unsigned long *flags,
 	return 0;
 }
 
+static DEFINE_MUTEX(gsva_reserved_aperture_lock);
+static unsigned long gsva_reserved_aperture_base;
+static unsigned long gsva_reserved_aperture_size;
+static u64 gsva_reserved_aperture_generation;
+static bool gsva_reserved_aperture_active;
+
+bool gsva_reserved_aperture_overlaps(unsigned long start, unsigned long len)
+{
+	unsigned long end;
+	unsigned long aperture_end;
+	bool overlaps = false;
+
+	if (!len || check_add_overflow(start, len, &end))
+		return false;
+
+	mutex_lock(&gsva_reserved_aperture_lock);
+	if (!gsva_reserved_aperture_active)
+		goto out;
+	if (check_add_overflow(gsva_reserved_aperture_base,
+			       gsva_reserved_aperture_size, &aperture_end))
+		goto out;
+	overlaps = start < aperture_end && end > gsva_reserved_aperture_base;
+out:
+	mutex_unlock(&gsva_reserved_aperture_lock);
+	return overlaps;
+}
+EXPORT_SYMBOL_GPL(gsva_reserved_aperture_overlaps);
+
+int gsva_reserved_aperture_register(unsigned long base, unsigned long size,
+				    u64 generation)
+{
+	unsigned long end;
+	int ret = 0;
+
+	if (!size || !PAGE_ALIGNED(base) || !PAGE_ALIGNED(size))
+		return -EINVAL;
+	if (check_add_overflow(base, size, &end) || end > TASK_SIZE)
+		return -EINVAL;
+
+	mutex_lock(&gsva_reserved_aperture_lock);
+	if (gsva_reserved_aperture_active &&
+	    (gsva_reserved_aperture_base != base ||
+	     gsva_reserved_aperture_size != size ||
+	     gsva_reserved_aperture_generation != generation)) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	gsva_reserved_aperture_base = base;
+	gsva_reserved_aperture_size = size;
+	gsva_reserved_aperture_generation = generation;
+	gsva_reserved_aperture_active = true;
+out:
+	mutex_unlock(&gsva_reserved_aperture_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(gsva_reserved_aperture_register);
+
+int gsva_reserved_aperture_clear(u64 generation)
+{
+	int ret = 0;
+
+	mutex_lock(&gsva_reserved_aperture_lock);
+	if (gsva_reserved_aperture_active && generation &&
+	    gsva_reserved_aperture_generation != generation) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	gsva_reserved_aperture_base = 0;
+	gsva_reserved_aperture_size = 0;
+	gsva_reserved_aperture_generation = 0;
+	gsva_reserved_aperture_active = false;
+out:
+	mutex_unlock(&gsva_reserved_aperture_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(gsva_reserved_aperture_clear);
+
+static bool mmap_is_gsva_mapping(struct file *file, unsigned long pgoff)
+{
+	return file && (pgoff & (OBMM_MMAP_FLAG_GSVA >> PAGE_SHIFT));
+}
+
 #ifdef CONFIG_HAVE_ARCH_MMAP_RND_BITS
 const int mmap_rnd_bits_min = CONFIG_ARCH_MMAP_RND_BITS_MIN;
 const int mmap_rnd_bits_max = CONFIG_ARCH_MMAP_RND_BITS_MAX;
@@ -1999,6 +2083,9 @@ get_unmapped_area(struct file *file, unsigned long addr, unsigned long len,
 		return -ENOMEM;
 	if (offset_in_page(addr))
 		return -EINVAL;
+	if (!mmap_is_gsva_mapping(file, pgoff) &&
+	    gsva_reserved_aperture_overlaps(addr, len))
+		return -EEXIST;
 
 	error = security_mmap_addr(addr);
 	return error ? error : addr;

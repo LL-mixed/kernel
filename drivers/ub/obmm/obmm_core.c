@@ -15,6 +15,7 @@
 #include <linux/scatterlist.h>
 #include <linux/dma-mapping.h>
 #include <linux/memory_hotplug.h>
+#include <linux/mm.h>
 #include <linux/rwlock.h>
 #include <linux/idr.h>
 #include <linux/acpi.h>
@@ -115,6 +116,11 @@ static int obmm_gsva_aperture_register(const struct obmm_cmd_gsva_aperture *cmd)
 	ret = obmm_gsva_validate_aperture(cmd);
 	if (ret)
 		return ret;
+	ret = gsva_reserved_aperture_register((unsigned long)cmd->base,
+					      (unsigned long)cmd->size,
+					      cmd->generation);
+	if (ret)
+		return ret;
 
 	mutex_lock(&obmm_gsva_aperture_lock);
 	if ((obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE) &&
@@ -122,6 +128,7 @@ static int obmm_gsva_aperture_register(const struct obmm_cmd_gsva_aperture *cmd)
 	     obmm_gsva_aperture.size != cmd->size ||
 	     obmm_gsva_aperture.generation != cmd->generation)) {
 		mutex_unlock(&obmm_gsva_aperture_lock);
+		(void)gsva_reserved_aperture_clear(cmd->generation);
 		return -EBUSY;
 	}
 
@@ -142,11 +149,18 @@ static void obmm_gsva_aperture_query(struct obmm_cmd_gsva_aperture *cmd)
 
 static int obmm_gsva_aperture_clear(const struct obmm_cmd_gsva_aperture *cmd)
 {
+	int ret;
+
 	mutex_lock(&obmm_gsva_aperture_lock);
 	if ((obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE) &&
 	    cmd->generation && obmm_gsva_aperture.generation != cmd->generation) {
 		mutex_unlock(&obmm_gsva_aperture_lock);
 		return -EINVAL;
+	}
+	ret = gsva_reserved_aperture_clear(cmd->generation);
+	if (ret) {
+		mutex_unlock(&obmm_gsva_aperture_lock);
+		return ret;
 	}
 	memset(&obmm_gsva_aperture, 0, sizeof(obmm_gsva_aperture));
 	mutex_unlock(&obmm_gsva_aperture_lock);

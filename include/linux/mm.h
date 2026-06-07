@@ -3533,6 +3533,10 @@ unsigned long randomize_stack_top(unsigned long stack_top);
 unsigned long randomize_page(unsigned long start, unsigned long range);
 
 extern unsigned long get_unmapped_area(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
+bool gsva_reserved_aperture_overlaps(unsigned long start, unsigned long len);
+int gsva_reserved_aperture_register(unsigned long base, unsigned long size,
+				    u64 generation);
+int gsva_reserved_aperture_clear(u64 generation);
 
 extern unsigned long mmap_region(struct file *file, unsigned long addr,
 	unsigned long len, vm_flags_t vm_flags, unsigned long pgoff,
