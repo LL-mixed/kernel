@@ -27,6 +27,7 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_OBMM_BOOTSTRAP_PUBLISH = 0x05,
 	SIM_DEC_OP_OBMM_BOOTSTRAP_LOOKUP = 0x06,
 	SIM_DEC_OP_GVA_MAP	= 0x07,
+	SIM_DEC_OP_COH_FENCE	= 0x08,
 };
 
 /* Control command status */
@@ -78,6 +79,7 @@ enum sim_dec_cache_policy {
 	SIM_DEC_CACHE_POLICY_WRITE_THROUGH = 1,
 	SIM_DEC_CACHE_POLICY_READ_CACHE = 2,
 	SIM_DEC_CACHE_POLICY_WRITE_BACK = 3,
+	SIM_DEC_CACHE_POLICY_DIRECTORY_MESI = 4,
 };
 
 enum sim_dec_access_flags {
@@ -259,6 +261,8 @@ int ub_sim_dec_backend_gva_map(struct ub_sim_decoder *dec,
 int ub_sim_dec_backend_unmap(struct ub_sim_decoder *dec, u32 scna, u64 map_id);
 int ub_sim_dec_backend_sync(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			    u64 offset, u64 len);
+int ub_sim_dec_backend_coh_fence(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
+				  u64 offset, u64 len);
 int ub_sim_dec_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			     struct sim_dec_query_resp *resp);
 int ub_sim_dec_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,

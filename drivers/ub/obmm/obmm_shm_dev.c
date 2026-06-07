@@ -18,6 +18,7 @@
 #include "obmm_shm_dev.h"
 #include "obmm_core.h"
 #include "../ubus/sim/ub_sim_decoder.h"
+#include "obmm_sim_decoder.h"
 
 static dev_t obmm_devt;
 
@@ -912,8 +913,15 @@ static long obmm_shm_sync_remote_range(struct file *file,
 	if (offset >= reg->mem_size || length > reg->mem_size - offset)
 		return -EINVAL;
 
-	ret = ub_sim_decoder_sync(g_ub_sim_decoder ? &g_ub_sim_decoder->service : NULL,
+	if (i_reg->sim_dec_cache_policy == OBMM_SIM_DEC_CACHE_POLICY_DIRECTORY_MESI) {
+		ret = ub_sim_dec_backend_coh_fence(g_ub_sim_decoder,
+						   i_reg->scna,
+						   i_reg->sim_dec_map_id,
+						   offset, length);
+	} else {
+		ret = ub_sim_decoder_sync(g_ub_sim_decoder ? &g_ub_sim_decoder->service : NULL,
 				  i_reg->sim_dec_map_id, offset, length);
+	}
 	if (ret) {
 		pr_err("obmm_shmdev sync remote range failed: mem_id=%d map_id=%#llx offset=%#lx len=%#lx ret=%pe\n",
 		       reg->regionid, i_reg->sim_dec_map_id, offset, length, ERR_PTR(ret));

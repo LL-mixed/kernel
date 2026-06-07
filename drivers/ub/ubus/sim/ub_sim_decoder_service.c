@@ -426,7 +426,8 @@ int ub_sim_decoder_gva_map(struct ub_sim_decoder_service *svc,
 	if (req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_NC &&
 	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_THROUGH &&
 	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_READ_CACHE &&
-	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_BACK) {
+	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_WRITE_BACK &&
+	    req->cache_policy != OBMM_SIM_DEC_CACHE_POLICY_DIRECTORY_MESI) {
 		pr_err("UB SIM Decoder: unsupported GVA cache_policy %u\n",
 		       req->cache_policy);
 		return -EINVAL;
@@ -628,8 +629,9 @@ int ub_sim_decoder_sync(struct ub_sim_decoder_service *svc, u64 map_id,
 		return -EINVAL;
 	}
 
-	/* Validate offset and length */
-	if (offset + len > entry->req.map_req.size) {
+	/* Validate offset and length without allowing u64 wraparound */
+	if (offset > entry->req.map_req.size ||
+	    len > entry->req.map_req.size - offset) {
 		mutex_unlock(&svc->lock);
 		return -EINVAL;
 	}
@@ -693,7 +695,7 @@ int ub_sim_decoder_obmm_bootstrap_publish(u32 scna,
 	if (record->node_count < 2 ||
 	    record->node_count > SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES ||
 	    record->node_id >= record->node_count ||
-	    record->export_cna == 0 || record->token_id == 0 ||
+	    record->export_cna == 0 ||
 	    record->remote_uba == 0 || record->size == 0 ||
 	    record->generation == 0)
 		return -EINVAL;

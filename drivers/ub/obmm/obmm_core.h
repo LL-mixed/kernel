@@ -189,6 +189,7 @@ struct obmm_import_region {
 
 	bool sim_dec_mapped;
 	u64 sim_dec_map_id;
+	u32 sim_dec_cache_policy;
 };
 
 struct mem_description_pid {

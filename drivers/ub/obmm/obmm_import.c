@@ -213,6 +213,7 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	}
 
 	i_reg->sim_dec_map_id = info.map_id;
+	i_reg->sim_dec_cache_policy = cache_policy;
 	i_reg->sim_dec_mapped = true;
 	return 0;
 }

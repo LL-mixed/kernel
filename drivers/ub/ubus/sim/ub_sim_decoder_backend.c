@@ -112,6 +112,19 @@ static int sim_backend_sync(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 	return ret;
 }
 
+static int sim_backend_coh_fence(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
+				  u64 offset, u64 len)
+{
+	struct sim_dec_sync_req req = {
+		.map_id = map_id,
+		.offset = offset,
+		.len = len
+	};
+
+	return ub_sim_dec_send_cmd(&dec->adapter, scna, SIM_DEC_OP_COH_FENCE,
+				   &req, sizeof(req), NULL, 0);
+}
+
 static int sim_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			     struct sim_dec_query_resp *resp)
 {
@@ -245,6 +258,21 @@ int ub_sim_dec_backend_sync(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 	}
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_sync);
+
+int ub_sim_dec_backend_coh_fence(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
+				  u64 offset, u64 len)
+{
+	if (!dec)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_coh_fence(dec, scna, map_id, offset, len);
+	default:
+		return -ENOTSUPP;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_coh_fence);
 
 int ub_sim_dec_backend_query(struct ub_sim_decoder *dec, u32 scna, u64 map_id,
 			     struct sim_dec_query_resp *resp)
