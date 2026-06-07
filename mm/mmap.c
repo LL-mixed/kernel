@@ -55,6 +55,7 @@
 #include <asm/cacheflush.h>
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
+#include <uapi/ub/obmm.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/mmap.h>
@@ -65,6 +66,24 @@
 #ifndef arch_mmap_check
 #define arch_mmap_check(addr, len, flags)	(0)
 #endif
+
+static int mmap_consume_gsva_flag(struct file *file, unsigned long *flags,
+				  unsigned long *pgoff)
+{
+	if (!(*flags & MAP_GSVA))
+		return 0;
+	if (!file)
+		return -EINVAL;
+	if ((*flags & MAP_TYPE) != MAP_SHARED &&
+	    (*flags & MAP_TYPE) != MAP_SHARED_VALIDATE)
+		return -EINVAL;
+	if (!file->f_op || !(file->f_op->mmap_supported_flags & MAP_GSVA))
+		return -EOPNOTSUPP;
+
+	*flags &= ~MAP_GSVA;
+	*pgoff |= OBMM_MMAP_FLAG_GSVA >> PAGE_SHIFT;
+	return 0;
+}
 
 #ifdef CONFIG_HAVE_ARCH_MMAP_RND_BITS
 const int mmap_rnd_bits_min = CONFIG_ARCH_MMAP_RND_BITS_MIN;
@@ -1509,12 +1528,19 @@ unsigned long ksys_mmap_pgoff(unsigned long addr, unsigned long len,
 		retval = -EINVAL;
 		goto out_fput;
 	}
+	if ((flags & MAP_GSVA) && (flags & MAP_ANONYMOUS)) {
+		retval = -EINVAL;
+		goto out_fput;
+	}
 
 	if (!(flags & MAP_ANONYMOUS)) {
 		audit_mmap_fd(fd, flags);
 		file = fget(fd);
 		if (!file)
 			return -EBADF;
+		retval = mmap_consume_gsva_flag(file, &flags, &pgoff);
+		if (retval)
+			goto out_fput;
 		if (is_file_hugepages(file)) {
 			len = ALIGN(len, huge_page_size(hstate_file(file)));
 		} else if (unlikely(flags & MAP_HUGETLB)) {

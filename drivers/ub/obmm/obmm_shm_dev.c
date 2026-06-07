@@ -7,6 +7,7 @@
 #include <linux/cacheflush.h>
 #include <asm/tlbflush.h>
 #include <linux/kernel.h>
+#include <linux/mman.h>
 #include <linux/mm.h>
 #include <linux/overflow.h>
 
@@ -970,6 +971,7 @@ static long obmm_shm_fops_ioctl(struct file *file, unsigned int cmd, unsigned lo
 
 const struct file_operations obmm_shm_fops = { .owner = THIS_MODULE,
 					       .unlocked_ioctl = obmm_shm_fops_ioctl,
+					       .mmap_supported_flags = MAP_GSVA,
 					       .mmap = obmm_shm_fops_mmap,
 					       .get_unmapped_area = thp_get_unmapped_area,
 					       .open = obmm_shm_fops_open,
