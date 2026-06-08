@@ -244,6 +244,7 @@ static int obmm_sim_dec_unmap_import(struct obmm_import_region *i_reg)
 
 	info.map_id = i_reg->sim_dec_map_id;
 	info.scna = i_reg->scna;
+	info.is_gsva = region_gsva_segment(&i_reg->region);
 	ret = cb(&info);
 	if (ret) {
 		pr_err("sim decoder unmap callback failed map_id=%#llx ret=%pe.\n",

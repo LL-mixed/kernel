@@ -140,14 +140,16 @@ static int ub_sim_decoder_obmm_unimport(void *unimport_info)
 	if (!info || !g_decoder || !g_decoder->enabled)
 		return -EINVAL;
 
-	gsva_req.version = 1;
-	gsva_req.map_id = info->map_id;
-	ret = ub_sim_dec_backend_gsva_unmap_v1(g_decoder, info->scna,
-					       &gsva_req, &gsva_resp);
-	if (ret == 0 || gsva_resp.error == GSVA_ERR_ROUTE_MISSING) {
-		pr_info("UB SIM Decoder: OBMM unimport GSVA V1 unmapped map_id=%#llx\n",
-			info->map_id);
-		return 0;
+	if (info->is_gsva) {
+		gsva_req.version = 1;
+		gsva_req.map_id = info->map_id;
+		ret = ub_sim_dec_backend_gsva_unmap_v1(g_decoder, info->scna,
+						       &gsva_req, &gsva_resp);
+		if (ret == 0 || gsva_resp.error == GSVA_ERR_ROUTE_MISSING) {
+			pr_info("UB SIM Decoder: OBMM unimport GSVA V1 unmapped map_id=%#llx\n",
+				info->map_id);
+			return 0;
+		}
 	}
 
 	ret = ub_sim_decoder_unmap(&g_decoder->service, info->map_id);

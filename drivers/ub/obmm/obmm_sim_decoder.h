@@ -95,6 +95,7 @@ struct obmm_sim_dec_import_info {
 struct obmm_sim_dec_unimport_info {
 	u64 map_id;
 	u32 scna;
+	bool is_gsva;
 };
 
 int obmm_register_import_callback(int (*import_fn)(void *));
