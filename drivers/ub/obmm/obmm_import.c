@@ -84,7 +84,8 @@ static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
 					  u64 *pte_offset, u32 *vmid, u32 *asid,
 					  u32 *tid, u32 *p_tag, u32 *cache_policy,
 					  u32 *map_source, u32 *address_profile,
-					  u32 *access_flags, u64 *gva_id)
+					  u32 *access_flags, u64 *gva_id,
+					  u64 *segment_id, u64 *epoch)
 {
 	const struct obmm_sim_dec_import_priv_v2 *priv_v2;
 	const struct obmm_sim_dec_import_priv_v1 *priv;
@@ -103,6 +104,8 @@ static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
 	*address_profile = OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA;
 	*access_flags = 0;
 	*gva_id = 0;
+	*segment_id = 0;
+	*epoch = 1;
 
 	if (region->priv_len < sizeof(*priv))
 		return;
@@ -135,6 +138,8 @@ static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
 		*address_profile = priv_v2->address_profile;
 		*access_flags = priv_v2->access_flags;
 		*gva_id = priv_v2->gva_id;
+		*segment_id = priv_v2->segment_id;
+		*epoch = priv_v2->epoch ?: 1;
 	}
 }
 
@@ -156,6 +161,8 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	u32 address_profile = OBMM_SIM_DEC_ADDRESS_PROFILE_GENERIC_GVA;
 	u32 access_flags = 0;
 	u64 gva_id = 0;
+	u64 segment_id = 0;
+	u64 epoch = 1;
 	int ret;
 
 	mutex_lock(&g_obmm_sim_dec_cb_lock);
@@ -168,7 +175,7 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 				      &local_va, &home_va, &pte_offset, &vmid,
 				      &asid, &tid, &p_tag, &cache_policy,
 				      &map_source, &address_profile, &access_flags,
-				      &gva_id);
+				      &gva_id, &segment_id, &epoch);
 	if (!remote_uba) {
 		pr_err("sim decoder map requires remote_uba in import priv.\n");
 		return -EINVAL;
@@ -205,6 +212,8 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	info.address_profile = address_profile;
 	info.access_flags = access_flags;
 	info.gva_id = gva_id;
+	info.segment_id = segment_id;
+	info.epoch = epoch;
 
 	ret = cb(&info);
 	if (ret) {

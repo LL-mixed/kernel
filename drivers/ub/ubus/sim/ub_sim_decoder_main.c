@@ -54,7 +54,7 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		gsva_req.version = 1;
 		gsva_req.flags = 0;
 		gsva_req.key.version = 1;
-		gsva_req.key.segment_id = info->gva_id ?: 1;
+		gsva_req.key.segment_id = info->segment_id ?: (info->gva_id ?: 1);
 		gsva_req.key.home_va = info->home_va;
 		gsva_req.key.size = info->size;
 		gsva_req.key.vmid = info->vmid;
@@ -62,7 +62,7 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		gsva_req.key.pte_offset = info->pte_offset;
 		gsva_req.key.p_tag = info->p_tag;
 		gsva_req.key.cache_policy = info->cache_policy;
-		gsva_req.key.epoch = 1;
+		gsva_req.key.epoch = info->epoch ?: 1;
 		gsva_req.local_pa = info->local_pa;
 		gsva_req.local_va = info->local_va;
 		gsva_req.remote_uba = info->remote_uba;
@@ -72,6 +72,7 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		gsva_req.address_profile = GSVA_ADDRESS_PROFILE_STRICT_GSVA;
 		gsva_req.access_flags = info->access_flags;
 		gsva_req.scna = info->scna;
+		gsva_req.dcna = info->dcna;
 
 		ret = ub_sim_dec_backend_gsva_map_v1(g_decoder, &gsva_req, &gsva_resp);
 		if (ret) {
@@ -132,10 +133,22 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 static int ub_sim_decoder_obmm_unimport(void *unimport_info)
 {
 	struct obmm_sim_dec_unimport_info *info = unimport_info;
+	struct sim_dec_gsva_unmap_req gsva_req = {0};
+	struct sim_dec_gsva_unmap_resp gsva_resp = {0};
 	int ret;
 
 	if (!info || !g_decoder || !g_decoder->enabled)
 		return -EINVAL;
+
+	gsva_req.version = 1;
+	gsva_req.map_id = info->map_id;
+	ret = ub_sim_dec_backend_gsva_unmap_v1(g_decoder, info->scna,
+					       &gsva_req, &gsva_resp);
+	if (ret == 0 || gsva_resp.error == GSVA_ERR_ROUTE_MISSING) {
+		pr_info("UB SIM Decoder: OBMM unimport GSVA V1 unmapped map_id=%#llx\n",
+			info->map_id);
+		return 0;
+	}
 
 	ret = ub_sim_decoder_unmap(&g_decoder->service, info->map_id);
 	if (ret) {

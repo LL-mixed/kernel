@@ -87,6 +87,8 @@ struct obmm_sim_dec_import_info {
 	u32 address_profile;
 	u32 access_flags;
 	u64 gva_id;
+	u64 segment_id;
+	u64 epoch;
 	u64 map_id;
 };
 
