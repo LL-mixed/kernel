@@ -13,6 +13,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include "ub_sim_decoder.h"
+#include <uapi/ub/gsva.h>
 #include "../../obmm/obmm_sim_decoder.h"
 
 static struct ub_sim_decoder *g_decoder;
@@ -45,9 +46,49 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 	map_req.upi = info->upi;
 	map_req.src_eid = info->src_eid;
 
+	/* GSVA V1 path: use GSVA_MAP_V1 opcode for strict identity mappings */
+	if (info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) {
+		struct sim_dec_gsva_map_req gsva_req = {0};
+		struct sim_dec_gsva_map_resp gsva_resp = {0};
+
+		gsva_req.version = 1;
+		gsva_req.flags = 0;
+		gsva_req.key.version = 1;
+		gsva_req.key.segment_id = info->gva_id ?: 1;
+		gsva_req.key.home_va = info->home_va;
+		gsva_req.key.size = info->size;
+		gsva_req.key.vmid = info->vmid;
+		gsva_req.key.asid = info->asid;
+		gsva_req.key.pte_offset = info->pte_offset;
+		gsva_req.key.p_tag = info->p_tag;
+		gsva_req.key.cache_policy = info->cache_policy;
+		gsva_req.key.epoch = 1;
+		gsva_req.local_pa = info->local_pa;
+		gsva_req.local_va = info->local_va;
+		gsva_req.remote_uba = info->remote_uba;
+		gsva_req.token_id = info->token_id;
+		gsva_req.token_value = info->token_value;
+		gsva_req.source = OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER;
+		gsva_req.address_profile = GSVA_ADDRESS_PROFILE_STRICT_GSVA;
+		gsva_req.access_flags = info->access_flags;
+		gsva_req.scna = info->scna;
+
+		ret = ub_sim_dec_backend_gsva_map_v1(g_decoder, &gsva_req, &gsva_resp);
+		if (ret) {
+			pr_err("UB SIM Decoder: GSVA V1 map failed: %pe\n",
+			       ERR_PTR(ret));
+			return ret;
+		}
+
+		map_id = gsva_resp.map_id;
+		info->map_id = map_id;
+		pr_info("UB SIM Decoder: OBMM import GSVA V1 mapped map_id=%#llx\n",
+			map_id);
+		return 0;
+	}
+
 	use_gva_map =
 		(info->map_source == OBMM_SIM_DEC_MAP_SOURCE_GVA_MANAGER) ||
-		(info->address_profile == OBMM_SIM_DEC_ADDRESS_PROFILE_GSVA_IDENTITY) ||
 		(info->local_va != 0 || info->home_va != 0 ||
 		 info->pte_offset != 0 || info->vmid != 0 || info->asid != 0 ||
 		 info->tid != 0 || info->p_tag != 0 ||
