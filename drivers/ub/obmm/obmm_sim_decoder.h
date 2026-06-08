@@ -50,6 +50,8 @@ struct obmm_sim_dec_import_priv_v2 {
 	u32 p_tag;
 	u32 access_flags;
 	u64 gva_id;
+	u64 segment_id;
+	u64 epoch;
 };
 
 struct obmm_sim_dec_import_priv_v1 {

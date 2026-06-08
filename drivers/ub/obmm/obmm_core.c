@@ -168,6 +168,186 @@ static int obmm_gsva_aperture_clear(const struct obmm_cmd_gsva_aperture *cmd)
 	return 0;
 }
 
+/* GSVA segment tracking */
+struct obmm_gsva_segment {
+	struct obmm_gsva_segment_desc_v1 desc;
+	struct list_head node;
+};
+static DEFINE_MUTEX(obmm_gsva_segment_lock);
+static LIST_HEAD(obmm_gsva_segments);
+static u64 obmm_gsva_segment_counter;
+
+static u32 obmm_gsva_next_token_id(void)
+{
+	static atomic_t counter = ATOMIC_INIT(1);
+	return (u32)atomic_inc_return(&counter);
+}
+
+static u32 obmm_gsva_next_token_value(void)
+{
+	static atomic_t counter = ATOMIC_INIT(1);
+	return (u32)atomic_inc_return(&counter);
+}
+
+static struct obmm_gsva_segment *
+obmm_gsva_find_segment_by_id(u64 segment_id)
+{
+	struct obmm_gsva_segment *seg;
+
+	list_for_each_entry(seg, &obmm_gsva_segments, node) {
+		if (seg->desc.segment_id == segment_id &&
+		    !(seg->desc.flags & OBMM_GSVA_SEG_F_RETIRED))
+			return seg;
+	}
+	return NULL;
+}
+
+static struct obmm_gsva_segment *
+obmm_gsva_find_segment_by_va(u64 home_va)
+{
+	struct obmm_gsva_segment *seg;
+
+	list_for_each_entry(seg, &obmm_gsva_segments, node) {
+		if (seg->desc.home_va == home_va &&
+		    !(seg->desc.flags & OBMM_GSVA_SEG_F_RETIRED))
+			return seg;
+	}
+	return NULL;
+}
+
+static int obmm_gsva_alloc_segment(struct obmm_cmd_gsva_alloc_segment_v1 *cmd)
+{
+	struct obmm_gsva_segment *seg;
+	u64 home_va;
+	u32 home_cna;
+	struct ub_entity *ubc_ents[1] = {NULL};
+	unsigned int ubc_count = 0;
+	int ret;
+
+	if (cmd->version != OBMM_GSVA_ABI_VERSION)
+		return -EINVAL;
+	if (cmd->size == 0 || !PAGE_ALIGNED(cmd->size))
+		return -EINVAL;
+
+	ret = ub_get_bus_controller(ubc_ents, 1, &ubc_count);
+	if (ret || ubc_count == 0 || !ubc_ents[0])
+		return -ENODEV;
+	home_cna = ubc_ents[0]->cna;
+
+	if (cmd->requested_home_va) {
+		if (!PAGE_ALIGNED(cmd->requested_home_va))
+			return -EINVAL;
+		if (!obmm_gsva_aperture_contains(cmd->requested_home_va, cmd->size))
+			return -EINVAL;
+		home_va = cmd->requested_home_va;
+	} else {
+		if (!(obmm_gsva_aperture.flags & OBMM_GSVA_APERTURE_F_ACTIVE))
+			return -EINVAL;
+		home_va = obmm_gsva_aperture.base +
+			  (obmm_gsva_segment_counter %
+			   (obmm_gsva_aperture.size / cmd->size)) *
+			  cmd->size;
+		if (!obmm_gsva_aperture_contains(home_va, cmd->size))
+			return -EINVAL;
+	}
+
+	seg = kzalloc(sizeof(*seg), GFP_KERNEL);
+	if (!seg)
+		return -ENOMEM;
+
+	mutex_lock(&obmm_gsva_segment_lock);
+	obmm_gsva_segment_counter++;
+	seg->desc.version = OBMM_GSVA_ABI_VERSION;
+	seg->desc.flags = OBMM_GSVA_SEG_F_STRICT_ADDRESS_IDENTITY |
+			  OBMM_GSVA_SEG_F_TOKEN_VALUE_REQUIRED |
+			  OBMM_GSVA_SEG_F_ACTIVE;
+	seg->desc.segment_id = ((u64)home_cna << 48) | obmm_gsva_segment_counter;
+	seg->desc.home_va = home_va;
+	seg->desc.size = PAGE_ALIGN(cmd->size);
+	seg->desc.epoch = 1;
+	seg->desc.home_cna = home_cna;
+	seg->desc.owner_node_id = cmd->home_node_id;
+	seg->desc.node_count = obmm_gsva_aperture.node_count;
+	seg->desc.cache_policy = cmd->cache_policy;
+	seg->desc.p_tag = (cmd->requested_p_tag != OBMM_GSVA_P_TAG_AUTO)
+			  ? cmd->requested_p_tag
+			  : (home_cna & 0x00ffffffu);
+	seg->desc.access_flags = cmd->access_flags;
+	seg->desc.token_id = obmm_gsva_next_token_id();
+	seg->desc.token_value = obmm_gsva_next_token_value();
+
+	list_add_tail(&seg->node, &obmm_gsva_segments);
+	mutex_unlock(&obmm_gsva_segment_lock);
+
+	cmd->desc = seg->desc;
+
+	pr_info("GSVA segment allocated: segment_id=%#llx home_va=%#llx size=%#llx epoch=%llu p_tag=%u token_id=%u\n",
+		seg->desc.segment_id, seg->desc.home_va, seg->desc.size,
+		seg->desc.epoch, seg->desc.p_tag, seg->desc.token_id);
+	return 0;
+}
+
+static int obmm_gsva_query_segment(struct obmm_cmd_gsva_query_segment_v1 *cmd)
+{
+	struct obmm_gsva_segment *seg;
+
+	if (cmd->version != OBMM_GSVA_ABI_VERSION)
+		return -EINVAL;
+
+	mutex_lock(&obmm_gsva_segment_lock);
+	if (cmd->segment_id)
+		seg = obmm_gsva_find_segment_by_id(cmd->segment_id);
+	else if (cmd->home_va)
+		seg = obmm_gsva_find_segment_by_va(cmd->home_va);
+	else
+		seg = NULL;
+
+	if (!seg) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -ENOENT;
+	}
+	cmd->desc = seg->desc;
+	mutex_unlock(&obmm_gsva_segment_lock);
+	return 0;
+}
+
+static int obmm_gsva_retire_segment(struct obmm_cmd_gsva_retire_segment_v1 *cmd)
+{
+	struct obmm_gsva_segment *seg;
+
+	if (cmd->version != OBMM_GSVA_ABI_VERSION)
+		return -EINVAL;
+
+	mutex_lock(&obmm_gsva_segment_lock);
+	seg = obmm_gsva_find_segment_by_id(cmd->segment_id);
+	if (!seg) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -ENOENT;
+	}
+	if (seg->desc.epoch != cmd->epoch) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		cmd->error = GSVA_ERR_STALE_EPOCH;
+		cmd->status = OBMM_GSVA_RETIRE_ABORTED;
+		return -EINVAL;
+	}
+	if (seg->desc.flags & OBMM_GSVA_SEG_F_RETIRED) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		cmd->status = OBMM_GSVA_RETIRE_ABORTED;
+		return -EALREADY;
+	}
+
+	seg->desc.flags &= ~OBMM_GSVA_SEG_F_ACTIVE;
+	seg->desc.flags |= OBMM_GSVA_SEG_F_RETIRED;
+	cmd->committed_epoch = seg->desc.epoch;
+	cmd->status = OBMM_GSVA_RETIRE_COMMITTED;
+	cmd->error = 0;
+	mutex_unlock(&obmm_gsva_segment_lock);
+
+	pr_info("GSVA segment retired: segment_id=%#llx epoch=%llu status=COMMITTED\n",
+		cmd->segment_id, cmd->committed_epoch);
+	return 0;
+}
+
 /*
  * OBMM centers around regions -- "struct obmm_region". Each region represents
  * a chunk of memory. OBMM exposes its interface to user space through the
@@ -617,6 +797,9 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_bootstrap_lookup bootstrap_lookup;
 		struct obmm_cmd_gsva_aperture gsva_aperture;
 		struct obmm_cmd_gsva_query_v1 gsva_query;
+		struct obmm_cmd_gsva_alloc_segment_v1 gsva_alloc_seg;
+		struct obmm_cmd_gsva_query_segment_v1 gsva_query_seg;
+		struct obmm_cmd_gsva_retire_segment_v1 gsva_retire_seg;
 	} cmd_param;
 
 	switch (cmd) {
@@ -874,6 +1057,57 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		if (ret)
 			return -EFAULT;
 	} break;
+		case OBMM_CMD_GSVA_ALLOC_SEGMENT: {
+			ret = (int)copy_from_user(&cmd_param.gsva_alloc_seg,
+						  (void __user *)arg,
+						  sizeof(struct obmm_cmd_gsva_alloc_segment_v1));
+			if (ret) {
+				pr_err("failed to load gsva alloc segment argument\n");
+				return -EFAULT;
+			}
+			ret = obmm_gsva_alloc_segment(&cmd_param.gsva_alloc_seg);
+			if (ret)
+				return ret;
+			ret = (int)copy_to_user((void __user *)arg,
+						&cmd_param.gsva_alloc_seg,
+						sizeof(struct obmm_cmd_gsva_alloc_segment_v1));
+			if (ret)
+				return -EFAULT;
+		} break;
+		case OBMM_CMD_GSVA_QUERY_SEGMENT: {
+			ret = (int)copy_from_user(&cmd_param.gsva_query_seg,
+						  (void __user *)arg,
+						  sizeof(struct obmm_cmd_gsva_query_segment_v1));
+			if (ret) {
+				pr_err("failed to load gsva query segment argument\n");
+				return -EFAULT;
+			}
+			ret = obmm_gsva_query_segment(&cmd_param.gsva_query_seg);
+			if (ret)
+				return ret;
+			ret = (int)copy_to_user((void __user *)arg,
+						&cmd_param.gsva_query_seg,
+						sizeof(struct obmm_cmd_gsva_query_segment_v1));
+			if (ret)
+				return -EFAULT;
+		} break;
+		case OBMM_CMD_GSVA_RETIRE_SEGMENT: {
+			ret = (int)copy_from_user(&cmd_param.gsva_retire_seg,
+						  (void __user *)arg,
+						  sizeof(struct obmm_cmd_gsva_retire_segment_v1));
+			if (ret) {
+				pr_err("failed to load gsva retire segment argument\n");
+				return -EFAULT;
+			}
+			ret = obmm_gsva_retire_segment(&cmd_param.gsva_retire_seg);
+			if (ret && ret != -EALREADY)
+				return ret;
+			ret = (int)copy_to_user((void __user *)arg,
+						&cmd_param.gsva_retire_seg,
+						sizeof(struct obmm_cmd_gsva_retire_segment_v1));
+			if (ret)
+				return -EFAULT;
+		} break;
 	default:
 		ret = -ENOTTY;
 	}
