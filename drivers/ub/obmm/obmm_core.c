@@ -1043,6 +1043,9 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 
 		qreq.version = cmd_param.gsva_query.version;
 		qreq.query_type = cmd_param.gsva_query.query_type;
+		qreq.key.version = OBMM_GSVA_ABI_VERSION;
+		qreq.key.segment_id = cmd_param.gsva_query.segment_id;
+		qreq.key.home_va = cmd_param.gsva_query.home_va;
 
 		ret = ub_sim_dec_backend_gsva_query_v1(dec, query_cna, &qreq, &qresp);
 		if (ret) {
