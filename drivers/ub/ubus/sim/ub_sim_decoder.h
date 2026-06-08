@@ -241,6 +241,7 @@ struct sim_dec_gsva_map_req {
 	__u32	address_profile;
 	__u32	access_flags;
 	__u32	scna;
+	__u32	dcna;
 };
 
 struct sim_dec_gsva_map_resp {
@@ -271,6 +272,18 @@ struct sim_dec_gsva_query_resp {
 	__u32	version;
 	__u32	error;
 	__u8	data[240];
+};
+
+struct sim_dec_gsva_event_req {
+	__u32	sub_op;
+	__u32	requester_cna;
+	__u32	token_id;
+	__u32	token_value;
+	struct sim_dec_gsva_key_v1 key;
+};
+
+struct sim_dec_gsva_event_resp {
+	__s32	error;
 };
 
 struct sim_dec_gsva_caps_resp {
@@ -356,6 +369,10 @@ int ub_sim_dec_backend_gsva_query_v1(struct ub_sim_decoder *dec,
 				      u32 scna,
 				      struct sim_dec_gsva_query_req *req,
 				      struct sim_dec_gsva_query_resp *resp);
+int ub_sim_dec_backend_gsva_event_v1(struct ub_sim_decoder *dec,
+				      u32 scna,
+				      struct sim_dec_gsva_event_req *req,
+				      struct sim_dec_gsva_event_resp *resp);
 
 /* Global decoder instance */
 extern struct ub_sim_decoder *g_ub_sim_decoder;

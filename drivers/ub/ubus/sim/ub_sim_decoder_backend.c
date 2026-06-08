@@ -357,6 +357,16 @@ static int sim_backend_gsva_query_v1(struct ub_sim_decoder *dec,
 				   req, sizeof(*req), resp, sizeof(*resp));
 }
 
+static int sim_backend_gsva_event_v1(struct ub_sim_decoder *dec,
+				      u32 scna,
+				      struct sim_dec_gsva_event_req *req,
+				      struct sim_dec_gsva_event_resp *resp)
+{
+	return ub_sim_dec_send_cmd(&dec->adapter, scna,
+				   SIM_DEC_OP_GSVA_EVENT_V1,
+				   req, sizeof(*req), resp, sizeof(*resp));
+}
+
 /* GSVA V1 Backend API entry points */
 int ub_sim_dec_backend_gsva_map_v1(struct ub_sim_decoder *dec,
 				    struct sim_dec_gsva_map_req *req,
@@ -407,6 +417,23 @@ int ub_sim_dec_backend_gsva_query_v1(struct ub_sim_decoder *dec,
 	}
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_gsva_query_v1);
+
+int ub_sim_dec_backend_gsva_event_v1(struct ub_sim_decoder *dec,
+				      u32 scna,
+				      struct sim_dec_gsva_event_req *req,
+				      struct sim_dec_gsva_event_resp *resp)
+{
+	if (!dec || !req || !resp)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_gsva_event_v1(dec, scna, req, resp);
+	default:
+		return -ENOTSUPP;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_gsva_event_v1);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("UB Simulation Decoder Backend");

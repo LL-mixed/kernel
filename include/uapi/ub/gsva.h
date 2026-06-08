@@ -90,6 +90,13 @@ struct gsva_key_v1 {
 #define GSVA_EVENT_CACHE_POLICY_CHANGE	7
 #define GSVA_EVENT_TLB_FLUSH		8
 
+/* GSVA coherence event sub-ops for OBMM_CMD_GSVA_EVENT_V1 */
+#define OBMM_GSVA_EVENT_READ_ACQUIRE	1
+#define OBMM_GSVA_EVENT_WRITE_ACQUIRE	2
+#define OBMM_GSVA_EVENT_RETIRE		3
+#define OBMM_GSVA_EVENT_INV_ACK		4
+#define OBMM_GSVA_EVENT_RETRY		5
+
 /* GSVA segment flags */
 #define OBMM_GSVA_SEG_F_STRICT_ADDRESS_IDENTITY	(1u << 0)
 #define OBMM_GSVA_SEG_F_TOKEN_VALUE_REQUIRED	(1u << 1)
@@ -161,6 +168,21 @@ struct obmm_cmd_gsva_retire_segment_v1 {
 	__u64	committed_epoch;
 	__u32	status;
 	__u32	error;
+};
+
+/* GSVA coherence event command */
+struct obmm_cmd_gsva_event_v1 {
+	__u32	version;
+	__u32	flags;
+	/* input */
+	__u32	sub_op;
+	__u32	requester_cna;
+	__u32	token_id;
+	__u32	token_value;
+	struct gsva_key_v1 key;
+	/* output: GSVA_OK or GSVA_ERR_* */
+	__s32	error;
+	__u32	reserved;
 };
 
 /* Retire status values */

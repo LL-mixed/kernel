@@ -179,6 +179,7 @@ struct obmm_cmd_gsva_query_v1 {
 #define OBMM_CMD_GSVA_ALLOC_SEGMENT _IOWR('x', 14, struct obmm_cmd_gsva_alloc_segment_v1)
 #define OBMM_CMD_GSVA_QUERY_SEGMENT _IOWR('x', 15, struct obmm_cmd_gsva_query_segment_v1)
 #define OBMM_CMD_GSVA_RETIRE_SEGMENT _IOWR('x', 16, struct obmm_cmd_gsva_retire_segment_v1)
+#define OBMM_CMD_GSVA_EVENT_V1 _IOWR('x', 17, struct obmm_cmd_gsva_event_v1)
 
 /* 2bits */
 #define OBMM_SHM_MEM_CACHE_RESV     0x0
