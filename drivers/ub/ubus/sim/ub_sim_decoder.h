@@ -28,6 +28,10 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_OBMM_BOOTSTRAP_LOOKUP = 0x06,
 	SIM_DEC_OP_GVA_MAP	= 0x07,
 	SIM_DEC_OP_COH_FENCE	= 0x08,
+	SIM_DEC_OP_GSVA_MAP_V1	= 0x09,
+	SIM_DEC_OP_GSVA_UNMAP_V1 = 0x0a,
+	SIM_DEC_OP_GSVA_EVENT_V1 = 0x0b,
+	SIM_DEC_OP_GSVA_QUERY_V1 = 0x0c,
 };
 
 /* Control command status */
