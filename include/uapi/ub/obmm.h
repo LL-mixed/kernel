@@ -154,6 +154,14 @@ struct obmm_cmd_gsva_aperture {
 
 #define OBMM_GSVA_APERTURE_F_ACTIVE	0x1UL
 
+struct obmm_cmd_gsva_query_v1 {
+	__u32 version;
+	__u32 query_type;
+	__u64 segment_id;
+	__u64 home_va;
+	__u8 resp_data[248];
+} __attribute__((aligned(8)));
+
 #define OBMM_CMD_EXPORT      _IOWR('x', 0, struct obmm_cmd_export)
 #define OBMM_CMD_IMPORT      _IOWR('x', 1, struct obmm_cmd_import)
 #define OBMM_CMD_UNEXPORT    _IOW('x', 2, struct obmm_cmd_unexport)
@@ -167,6 +175,7 @@ struct obmm_cmd_gsva_aperture {
 #define OBMM_CMD_GSVA_APERTURE_REGISTER _IOW('x', 10, struct obmm_cmd_gsva_aperture)
 #define OBMM_CMD_GSVA_APERTURE_QUERY _IOWR('x', 11, struct obmm_cmd_gsva_aperture)
 #define OBMM_CMD_GSVA_APERTURE_CLEAR _IOW('x', 12, struct obmm_cmd_gsva_aperture)
+#define OBMM_CMD_GSVA_QUERY_V1 _IOWR('x', 13, struct obmm_cmd_gsva_query_v1)
 
 /* 2bits */
 #define OBMM_SHM_MEM_CACHE_RESV     0x0

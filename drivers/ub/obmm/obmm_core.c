@@ -28,6 +28,7 @@
 #include "obmm_cache.h"
 #include "obmm_export_region_ops.h"
 #include "ubmempool_allocator.h"
+#include "../ubus/sim/ub_sim_decoder.h"
 #include "obmm_import.h"
 #include "obmm_ownership.h"
 #include "obmm_lowmem.h"
@@ -615,6 +616,7 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_bootstrap_publish bootstrap_publish;
 		struct obmm_cmd_bootstrap_lookup bootstrap_lookup;
 		struct obmm_cmd_gsva_aperture gsva_aperture;
+		struct obmm_cmd_gsva_query_v1 gsva_query;
 	} cmd_param;
 
 	switch (cmd) {
@@ -825,6 +827,52 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		}
 
 		ret = obmm_gsva_aperture_clear(&cmd_param.gsva_aperture);
+	} break;
+	case OBMM_CMD_GSVA_QUERY_V1: {
+		struct ub_sim_decoder *dec = g_ub_sim_decoder;
+		struct sim_dec_gsva_query_req qreq = {0};
+		struct sim_dec_gsva_query_resp qresp = {0};
+		struct ub_entity *ubc_ents[1] = {NULL};
+		unsigned int ubc_count = 0;
+		u32 query_cna = 0;
+
+		ret = (int)copy_from_user(&cmd_param.gsva_query,
+					  (void __user *)arg,
+					  sizeof(struct obmm_cmd_gsva_query_v1));
+		if (ret) {
+			pr_err("failed to load gsva query argument\n");
+			return -EFAULT;
+		}
+
+		if (!dec || !dec->enabled) {
+			pr_err("gsva query: sim decoder not available\n");
+			return -ENODEV;
+		}
+
+		ret = ub_get_bus_controller(ubc_ents, 1, &ubc_count);
+		if (ret || ubc_count == 0 || !ubc_ents[0]) {
+			pr_err("gsva query: no bus controller available\n");
+			return -ENODEV;
+		}
+		query_cna = ubc_ents[0]->cna;
+
+		qreq.version = cmd_param.gsva_query.version;
+		qreq.query_type = cmd_param.gsva_query.query_type;
+
+		ret = ub_sim_dec_backend_gsva_query_v1(dec, query_cna, &qreq, &qresp);
+		if (ret) {
+			pr_err("gsva query failed: %d\n", ret);
+			return ret;
+		}
+
+		memcpy(cmd_param.gsva_query.resp_data, &qresp,
+		       min_t(size_t, sizeof(qresp),
+			     sizeof(cmd_param.gsva_query.resp_data)));
+
+		ret = (int)copy_to_user((void __user *)arg, &cmd_param.gsva_query,
+					sizeof(struct obmm_cmd_gsva_query_v1));
+		if (ret)
+			return -EFAULT;
 	} break;
 	default:
 		ret = -ENOTTY;

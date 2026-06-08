@@ -213,6 +213,75 @@ struct ub_sim_dec_ctrl_adapter {
 	bool				connected;
 };
 
+/* GSVA V1 wire structures for SIM_DEC protocol */
+struct sim_dec_gsva_key_v1 {
+	__u32	version;
+	__u32	flags;
+	__u64	segment_id;
+	__u64	home_va;
+	__u64	size;
+	__u64	vmid;
+	__u64	asid;
+	__u64	pte_offset;
+	__u32	p_tag;
+	__u32	cache_policy;
+	__u64	epoch;
+};
+
+struct sim_dec_gsva_map_req {
+	__u32	version;
+	__u32	flags;
+	struct sim_dec_gsva_key_v1 key;
+	__u64	local_pa;
+	__u64	local_va;
+	__u64	remote_uba;
+	__u64	token_id;
+	__u64	token_value;
+	__u32	source;
+	__u32	address_profile;
+	__u32	access_flags;
+	__u32	scna;
+};
+
+struct sim_dec_gsva_map_resp {
+	__u64	map_id;
+	__u32	error;
+	__u32	rsvd;
+};
+
+struct sim_dec_gsva_unmap_req {
+	__u32	version;
+	__u32	flags;
+	struct sim_dec_gsva_key_v1 key;
+	__u64	map_id;
+};
+
+struct sim_dec_gsva_unmap_resp {
+	__u32	error;
+	__u32	rsvd;
+};
+
+struct sim_dec_gsva_query_req {
+	__u32	version;
+	__u32	query_type;
+	struct sim_dec_gsva_key_v1 key;
+};
+
+struct sim_dec_gsva_query_resp {
+	__u32	version;
+	__u32	error;
+	__u8	data[240];
+};
+
+struct sim_dec_gsva_caps_resp {
+	__u32	version;
+	__u32	flags;
+	__u32	max_nodes;
+	__u32	supported_cache_policies;
+	__u32	supported_modes;
+	__u32	reserved;
+};
+
 /* Backend types */
 enum ub_sim_dec_backend_type {
 	UB_SIM_DEC_BACKEND_SIM,
@@ -274,6 +343,19 @@ int ub_sim_dec_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,
 int ub_sim_dec_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
 		u32 scna, u32 node_count, u64 generation,
 		struct sim_dec_obmm_bootstrap_lookup_resp *resp);
+
+/* GSVA V1 Backend API */
+int ub_sim_dec_backend_gsva_map_v1(struct ub_sim_decoder *dec,
+				    struct sim_dec_gsva_map_req *req,
+				    struct sim_dec_gsva_map_resp *resp);
+int ub_sim_dec_backend_gsva_unmap_v1(struct ub_sim_decoder *dec,
+				      u32 scna,
+				      struct sim_dec_gsva_unmap_req *req,
+				      struct sim_dec_gsva_unmap_resp *resp);
+int ub_sim_dec_backend_gsva_query_v1(struct ub_sim_decoder *dec,
+				      u32 scna,
+				      struct sim_dec_gsva_query_req *req,
+				      struct sim_dec_gsva_query_resp *resp);
 
 /* Global decoder instance */
 extern struct ub_sim_decoder *g_ub_sim_decoder;
