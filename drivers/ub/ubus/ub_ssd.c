@@ -28,14 +28,15 @@ struct ub_ssd_priv {
 	uint32_t cna;
 };
 
-static int ub_ssd_submit(struct ub_ssd_priv *priv,
-			 struct ub_ssd_cmd_v1 __user *ucmd)
+static uint64_t ub_ssd_cmd_bit(unsigned int cmd)
 {
-	struct ub_ssd_cmd_v1 kcmd;
-	uint32_t status;
+	return 1ULL << _IOC_NR(cmd);
+}
 
-	if (copy_from_user(&kcmd, ucmd, sizeof(kcmd)))
-		return -EFAULT;
+static int ub_ssd_submit_kcmd(struct ub_ssd_priv *priv,
+			      const struct ub_ssd_cmd_v1 *kcmd)
+{
+	uint32_t status;
 
 	status = readl(priv->mmio + SSD_STATUS_OFF);
 	if (status & SSD_STATUS_BUSY)
@@ -54,9 +55,9 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 	 * readable.  Use explicit 4-byte writes instead.
 	 */
 	{
-		const uint32_t *src = (const uint32_t *)&kcmd;
+		const uint32_t *src = (const uint32_t *)kcmd;
 		int i;
-		for (i = 0; i < sizeof(kcmd) / 4; i++)
+		for (i = 0; i < sizeof(*kcmd) / 4; i++)
 			writel(src[i], priv->mmio + SSD_CMD_SLOT_OFF + i * 4);
 	}
 
@@ -65,10 +66,20 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 	return 0;
 }
 
-static int ub_ssd_wait(struct ub_ssd_priv *priv,
-		       struct ub_ssd_cpl_v1 __user *ucpl)
+static int ub_ssd_submit(struct ub_ssd_priv *priv,
+			 struct ub_ssd_cmd_v1 __user *ucmd)
 {
-	struct ub_ssd_cpl_v1 kcpl;
+	struct ub_ssd_cmd_v1 kcmd;
+
+	if (copy_from_user(&kcmd, ucmd, sizeof(kcmd)))
+		return -EFAULT;
+
+	return ub_ssd_submit_kcmd(priv, &kcmd);
+}
+
+static int ub_ssd_wait_kcpl(struct ub_ssd_priv *priv,
+			    struct ub_ssd_cpl_v1 *kcpl)
+{
 	uint32_t status;
 	int retries;
 
@@ -82,9 +93,22 @@ static int ub_ssd_wait(struct ub_ssd_priv *priv,
 	if (!(status & SSD_STATUS_COMPLETION_VALID))
 		return -ETIMEDOUT;
 
-	memcpy_fromio(&kcpl, priv->mmio + SSD_CPL_SLOT_OFF, sizeof(kcpl));
+	memcpy_fromio(kcpl, priv->mmio + SSD_CPL_SLOT_OFF, sizeof(*kcpl));
 
 	writel(1, priv->mmio + SSD_CLEAR_CPL_OFF);
+
+	return 0;
+}
+
+static int ub_ssd_wait(struct ub_ssd_priv *priv,
+		       struct ub_ssd_cpl_v1 __user *ucpl)
+{
+	struct ub_ssd_cpl_v1 kcpl;
+	int rc;
+
+	rc = ub_ssd_wait_kcpl(priv, &kcpl);
+	if (rc)
+		return rc;
 
 	if (copy_to_user(ucpl, &kcpl, sizeof(kcpl)))
 		return -EFAULT;
@@ -126,23 +150,19 @@ static int ub_ssd_status_to_errno(uint32_t status)
 
 static int ub_ssd_submit_wait(struct ub_ssd_priv *priv,
 			     struct ub_ssd_cmd_v1 *ucmd,
-			     struct ub_ssd_cpl_v1 __user *ucpl)
+			     struct ub_ssd_cpl_v1 *kcpl)
 {
-	struct ub_ssd_cpl_v1 kcpl = {};
 	int rc;
 
-	rc = ub_ssd_submit(priv, ucmd);
+	rc = ub_ssd_submit_kcmd(priv, ucmd);
 	if (rc)
 		return rc;
 
-	rc = ub_ssd_wait(priv, &kcpl);
+	rc = ub_ssd_wait_kcpl(priv, kcpl);
 	if (rc)
 		return rc;
 
-	if (ucpl && copy_to_user(ucpl, &kcpl, sizeof(*ucpl)))
-		return -EFAULT;
-
-	return ub_ssd_status_to_errno(kcpl.status);
+	return ub_ssd_status_to_errno(kcpl->status);
 }
 
 static int ub_ssd_submit_snapshot(struct ub_ssd_priv *priv,
@@ -212,11 +232,11 @@ static int ub_ssd_query(struct ub_ssd_priv *priv,
 		kq.u.status.last_req_id = readq(priv->mmio + SSD_LAST_REQ_ID_OFF);
 		kq.u.status.backend_profile = readq(priv->mmio + SSD_BACKEND_PROFILE_OFF);
 		kq.u.status.supported_commands =
-			(1ULL << ((UB_SSD_SUBMIT >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_SSD_WAIT >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_SSD_QUERY >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_SSD_EXPORT_SNAPSHOT >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_SSD_IMPORT_SNAPSHOT >> _IOC_NRSHIFT)));
+			ub_ssd_cmd_bit(UB_SSD_SUBMIT) |
+			ub_ssd_cmd_bit(UB_SSD_WAIT) |
+			ub_ssd_cmd_bit(UB_SSD_QUERY) |
+			ub_ssd_cmd_bit(UB_SSD_EXPORT_SNAPSHOT) |
+			ub_ssd_cmd_bit(UB_SSD_IMPORT_SNAPSHOT);
 		if (status & SSD_STATUS_COMPLETION_VALID)
 			memcpy_fromio(&kcpl, priv->mmio + SSD_CPL_SLOT_OFF, sizeof(kcpl));
 		kq.u.status.completion = kcpl;

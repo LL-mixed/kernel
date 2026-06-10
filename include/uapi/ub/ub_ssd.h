@@ -17,6 +17,8 @@
 #define SSD_OP_BLOCK_TOMBSTONE	4
 #define SSD_OP_FLUSH		5
 #define SSD_OP_STAT		6
+#define SSD_OP_EXPORT_SNAPSHOT	7
+#define SSD_OP_IMPORT_SNAPSHOT	8
 
 /* Completion status codes */
 #define SSD_OK			0
@@ -34,6 +36,7 @@
 #define SSD_ERR_SEALED		(-12)
 #define SSD_ERR_TOMBSTONED	(-13)
 #define SSD_ERR_BACKEND_IO	(-14)
+#define SSD_ERR_BAD_SNAPSHOT	(-15)
 
 /* SSD block ref */
 struct ub_ssd_block_ref_v1 {
@@ -43,7 +46,7 @@ struct ub_ssd_block_ref_v1 {
 	__u64	offset;
 	__u64	bytes;
 	__u64	checksum64;
-};
+} __attribute__((packed));
 
 /* SSD buffer descriptor */
 struct ub_ssd_buffer_desc_v1 {
@@ -52,7 +55,7 @@ struct ub_ssd_buffer_desc_v1 {
 	struct gsva_key_v1 key;
 	__u32	token_id;
 	__u32	token_value;
-};
+} __attribute__((packed));
 
 /* SSD command */
 struct ub_ssd_cmd_v1 {
@@ -64,7 +67,7 @@ struct ub_ssd_cmd_v1 {
 	__u32	flags;
 	struct ub_ssd_block_ref_v1 block_ref;
 	struct ub_ssd_buffer_desc_v1 buffer;
-};
+} __attribute__((packed));
 
 /* SSD completion */
 struct ub_ssd_cpl_v1 {
@@ -76,6 +79,37 @@ struct ub_ssd_cpl_v1 {
 	__u64	bytes_written;
 	__u64	checksum64;
 	__u64	error_detail;
+} __attribute__((packed));
+
+/* SSD query */
+#define UB_QUERY_SSD_CAPS		1
+
+struct ub_ssd_query_status_v1 {
+	__u32	version;
+	__u32	status_reg;
+	__u32	error_reg;
+	__u32	reserved;
+	__u64	last_req_id;
+	struct ub_ssd_cpl_v1 completion;
+	__u64	backend_profile;
+	__u64	supported_commands;
+	__u64	reserved2;
+};
+
+struct ub_ssd_query_v1 {
+	__u32	version;
+	__u32	type;
+	union {
+		struct ub_ssd_query_status_v1 status;
+		__u64	raw[14];
+	} u;
+};
+
+struct ub_ssd_snapshot_v1 {
+	__u32 version;
+	__u32 reserved;
+	struct ub_ssd_buffer_desc_v1 buffer;
+	__u64 snapshot_size;
 };
 
 /* SSD MMIO register offsets */
@@ -89,6 +123,7 @@ struct ub_ssd_cpl_v1 {
 #define SSD_CLEAR_CPL_OFF	0x514
 #define SSD_LAST_REQ_ID_OFF	0x518
 #define SSD_STATS_OFF		0x520
+#define SSD_BACKEND_PROFILE_OFF	0x5a0
 
 /* Status register bits */
 #define SSD_STATUS_READY		(1u << 0)
@@ -100,6 +135,8 @@ struct ub_ssd_cpl_v1 {
 #define UB_SSD_IOC_MAGIC	'S'
 #define UB_SSD_SUBMIT		_IOW(UB_SSD_IOC_MAGIC, 1, struct ub_ssd_cmd_v1)
 #define UB_SSD_WAIT		_IOR(UB_SSD_IOC_MAGIC, 2, struct ub_ssd_cpl_v1)
-#define UB_SSD_QUERY		_IOR(UB_SSD_IOC_MAGIC, 3, __u64[16])
+#define UB_SSD_QUERY		_IOR(UB_SSD_IOC_MAGIC, 3, struct ub_ssd_query_v1)
+#define UB_SSD_EXPORT_SNAPSHOT	_IOWR(UB_SSD_IOC_MAGIC, 4, struct ub_ssd_snapshot_v1)
+#define UB_SSD_IMPORT_SNAPSHOT	_IOWR(UB_SSD_IOC_MAGIC, 5, struct ub_ssd_snapshot_v1)
 
 #endif /* _UAPI_UB_SSD_H */

@@ -28,6 +28,11 @@ struct ub_npu_priv {
 	uint32_t cna;
 };
 
+static uint64_t ub_npu_cmd_bit(unsigned int cmd)
+{
+	return 1ULL << _IOC_NR(cmd);
+}
+
 static int ub_npu_submit(struct ub_npu_priv *priv,
 			 struct ub_npu_cmd_v1 __user *ucmd)
 {
@@ -106,9 +111,9 @@ static int ub_npu_query(struct ub_npu_priv *priv,
 		kq.u.status.last_req_id = readq(priv->mmio + NPU_LAST_REQ_ID_OFF);
 		kq.u.status.backend_profile = 0;
 		kq.u.status.supported_commands =
-			(1ULL << ((UB_NPU_SUBMIT >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_NPU_WAIT >> _IOC_NRSHIFT))) |
-			(1ULL << ((UB_NPU_QUERY >> _IOC_NRSHIFT)));
+			ub_npu_cmd_bit(UB_NPU_SUBMIT) |
+			ub_npu_cmd_bit(UB_NPU_WAIT) |
+			ub_npu_cmd_bit(UB_NPU_QUERY);
 		if (status & NPU_STATUS_COMPLETION_VALID)
 			memcpy_fromio(&kcpl, priv->mmio + NPU_CPL_SLOT_OFF, sizeof(kcpl));
 		kq.u.status.completion = kcpl;

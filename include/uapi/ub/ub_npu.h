@@ -77,6 +77,30 @@ struct ub_npu_cpl_v1 {
 	__u64	error_detail;
 };
 
+/* NPU query */
+#define UB_QUERY_NPU_CAPS		1
+
+struct ub_npu_query_status_v1 {
+	__u32	version;
+	__u32	status_reg;
+	__u32	error_reg;
+	__u32	reserved;
+	__u64	last_req_id;
+	struct ub_npu_cpl_v1 completion;
+	__u64	backend_profile;
+	__u64	supported_commands;
+	__u64	reserved2;
+};
+
+struct ub_npu_query_v1 {
+	__u32	version;
+	__u32	type;
+	union {
+		struct ub_npu_query_status_v1 status;
+		__u64	raw[11];
+	} u;
+};
+
 /* NPU MMIO register offsets */
 #define NPU_MMIO_SIZE		0x1000
 #define NPU_CMD_SLOT_OFF	0x000
@@ -99,6 +123,6 @@ struct ub_npu_cpl_v1 {
 #define UB_NPU_IOC_MAGIC	'N'
 #define UB_NPU_SUBMIT		_IOW(UB_NPU_IOC_MAGIC, 1, struct ub_npu_cmd_v1)
 #define UB_NPU_WAIT		_IOR(UB_NPU_IOC_MAGIC, 2, struct ub_npu_cpl_v1)
-#define UB_NPU_QUERY		_IOR(UB_NPU_IOC_MAGIC, 3, __u64[16])
+#define UB_NPU_QUERY		_IOR(UB_NPU_IOC_MAGIC, 3, struct ub_npu_query_v1)
 
 #endif /* _UAPI_UB_NPU_H */
