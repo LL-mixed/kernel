@@ -92,6 +92,140 @@ static int ub_ssd_wait(struct ub_ssd_priv *priv,
 	return 0;
 }
 
+static int ub_ssd_status_to_errno(uint32_t status)
+{
+	switch (status) {
+	case SSD_OK:
+		return 0;
+	case SSD_ERR_BAD_VERSION:
+	case SSD_ERR_BAD_OPCODE:
+	case SSD_ERR_BAD_BLOCK:
+	case SSD_ERR_BAD_SNAPSHOT:
+		return -EINVAL;
+	case SSD_ERR_BAD_DESCRIPTOR:
+		return -EFAULT;
+	case SSD_ERR_TOKEN_DENIED:
+		return -EACCES;
+	case SSD_ERR_STALE_EPOCH:
+		return -EAGAIN;
+	case SSD_ERR_SEGMENT_RETIRED:
+		return -ENODEV;
+	case SSD_ERR_COH_TIMEOUT:
+		return -ETIMEDOUT;
+	case SSD_ERR_DEVICE_BUSY:
+		return -EBUSY;
+	case SSD_ERR_CHECKSUM:
+	case SSD_ERR_VERSION_CONFLICT:
+	case SSD_ERR_SEALED:
+	case SSD_ERR_TOMBSTONED:
+	case SSD_ERR_BACKEND_IO:
+	default:
+		return -EIO;
+	}
+}
+
+static int ub_ssd_submit_wait(struct ub_ssd_priv *priv,
+			     struct ub_ssd_cmd_v1 *ucmd,
+			     struct ub_ssd_cpl_v1 __user *ucpl)
+{
+	struct ub_ssd_cpl_v1 kcpl = {};
+	int rc;
+
+	rc = ub_ssd_submit(priv, ucmd);
+	if (rc)
+		return rc;
+
+	rc = ub_ssd_wait(priv, &kcpl);
+	if (rc)
+		return rc;
+
+	if (ucpl && copy_to_user(ucpl, &kcpl, sizeof(*ucpl)))
+		return -EFAULT;
+
+	return ub_ssd_status_to_errno(kcpl.status);
+}
+
+static int ub_ssd_submit_snapshot(struct ub_ssd_priv *priv,
+				 struct ub_ssd_snapshot_v1 __user *usap,
+				 uint32_t opcode)
+{
+	struct ub_ssd_snapshot_v1 snap = {};
+	struct ub_ssd_cmd_v1 cmd = {};
+	struct ub_ssd_cpl_v1 kcpl = {};
+	int rc;
+
+	if (copy_from_user(&snap, usap, sizeof(snap)))
+		return -EFAULT;
+
+	if (snap.version != 1)
+		return -EINVAL;
+	if (snap.snapshot_size == 0 && snap.buffer.bytes == 0)
+		return -EINVAL;
+
+	cmd.version = 1;
+	cmd.opcode = opcode;
+	cmd.buffer = snap.buffer;
+	if (snap.snapshot_size)
+		cmd.buffer.bytes = snap.snapshot_size;
+
+	rc = ub_ssd_submit_wait(priv, &cmd, &kcpl);
+	if (rc)
+		return rc;
+
+	switch (opcode) {
+	case SSD_OP_EXPORT_SNAPSHOT:
+		snap.snapshot_size = kcpl.bytes_written;
+		break;
+	case SSD_OP_IMPORT_SNAPSHOT:
+		snap.snapshot_size = kcpl.bytes_read;
+		break;
+	default:
+		break;
+	}
+
+	if (copy_to_user(usap, &snap, sizeof(snap)))
+		return -EFAULT;
+
+	return 0;
+}
+
+static int ub_ssd_query(struct ub_ssd_priv *priv,
+			   struct ub_ssd_query_v1 __user *uq)
+{
+	struct ub_ssd_query_v1 kq = {};
+	struct ub_ssd_cpl_v1 kcpl = {};
+	uint32_t status;
+
+	if (copy_from_user(&kq, uq, sizeof(kq)))
+		return -EFAULT;
+
+	kq.version = 1;
+
+	if (kq.type == 0)
+		kq.type = UB_QUERY_SSD_CAPS;
+
+	switch (kq.type) {
+	case UB_QUERY_SSD_CAPS:
+		status = readl(priv->mmio + SSD_STATUS_OFF);
+		kq.u.status.status_reg = status;
+		kq.u.status.error_reg = readl(priv->mmio + SSD_ERROR_OFF);
+		kq.u.status.last_req_id = readq(priv->mmio + SSD_LAST_REQ_ID_OFF);
+		kq.u.status.backend_profile = readq(priv->mmio + SSD_BACKEND_PROFILE_OFF);
+		kq.u.status.supported_commands =
+			(1ULL << ((UB_SSD_SUBMIT >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_SSD_WAIT >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_SSD_QUERY >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_SSD_EXPORT_SNAPSHOT >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_SSD_IMPORT_SNAPSHOT >> _IOC_NRSHIFT)));
+		if (status & SSD_STATUS_COMPLETION_VALID)
+			memcpy_fromio(&kcpl, priv->mmio + SSD_CPL_SLOT_OFF, sizeof(kcpl));
+		kq.u.status.completion = kcpl;
+		return copy_to_user(uq, &kq, sizeof(kq)) ? -EFAULT : 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static long ub_ssd_ioctl(struct file *filp, unsigned int cmd,
 			 unsigned long arg)
 {
@@ -103,6 +237,16 @@ static long ub_ssd_ioctl(struct file *filp, unsigned int cmd,
 		return ub_ssd_submit(priv, (struct ub_ssd_cmd_v1 __user *)arg);
 	case UB_SSD_WAIT:
 		return ub_ssd_wait(priv, (struct ub_ssd_cpl_v1 __user *)arg);
+	case UB_SSD_QUERY:
+		return ub_ssd_query(priv, (struct ub_ssd_query_v1 __user *)arg);
+	case UB_SSD_EXPORT_SNAPSHOT:
+		return ub_ssd_submit_snapshot(priv,
+					      (struct ub_ssd_snapshot_v1 __user *)arg,
+					      SSD_OP_EXPORT_SNAPSHOT);
+	case UB_SSD_IMPORT_SNAPSHOT:
+		return ub_ssd_submit_snapshot(priv,
+					      (struct ub_ssd_snapshot_v1 __user *)arg,
+					      SSD_OP_IMPORT_SNAPSHOT);
 	default:
 		return -ENOTTY;
 	}
