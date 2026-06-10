@@ -19,7 +19,7 @@
 #include <uapi/ub/ub_npu.h>
 
 #define DRIVER_NAME "ub-npu"
-#define DEV_NAME "ub_npu"
+#define DEV_NAME "ub_npu0"
 
 struct ub_npu_priv {
 	struct device *dev;

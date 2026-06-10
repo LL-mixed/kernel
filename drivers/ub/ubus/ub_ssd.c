@@ -19,7 +19,7 @@
 #include <uapi/ub/ub_ssd.h>
 
 #define DRIVER_NAME "ub-ssd"
-#define DEV_NAME "ub_ssd"
+#define DEV_NAME "ub_ssd0"
 
 struct ub_ssd_priv {
 	struct device *dev;
