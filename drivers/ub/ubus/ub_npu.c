@@ -82,6 +82,42 @@ static int ub_npu_wait(struct ub_npu_priv *priv,
 	return 0;
 }
 
+
+static int ub_npu_query(struct ub_npu_priv *priv,
+                       struct ub_npu_query_v1 __user *uq)
+{
+	struct ub_npu_query_v1 kq = {};
+	struct ub_npu_cpl_v1 kcpl = {};
+	uint32_t status;
+
+	if (copy_from_user(&kq, uq, sizeof(kq)))
+		return -EFAULT;
+
+	kq.version = 1;
+
+	if (kq.type == 0)
+		kq.type = UB_QUERY_NPU_CAPS;
+
+	switch (kq.type) {
+	case UB_QUERY_NPU_CAPS:
+		status = readl(priv->mmio + NPU_STATUS_OFF);
+		kq.u.status.status_reg = status;
+		kq.u.status.error_reg = readl(priv->mmio + NPU_ERROR_OFF);
+		kq.u.status.last_req_id = readq(priv->mmio + NPU_LAST_REQ_ID_OFF);
+		kq.u.status.backend_profile = 0;
+		kq.u.status.supported_commands =
+			(1ULL << ((UB_NPU_SUBMIT >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_NPU_WAIT >> _IOC_NRSHIFT))) |
+			(1ULL << ((UB_NPU_QUERY >> _IOC_NRSHIFT)));
+		if (status & NPU_STATUS_COMPLETION_VALID)
+			memcpy_fromio(&kcpl, priv->mmio + NPU_CPL_SLOT_OFF, sizeof(kcpl));
+		kq.u.status.completion = kcpl;
+		return copy_to_user(uq, &kq, sizeof(kq)) ? -EFAULT : 0;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
 static long ub_npu_ioctl(struct file *filp, unsigned int cmd,
 			 unsigned long arg)
 {
@@ -93,6 +129,8 @@ static long ub_npu_ioctl(struct file *filp, unsigned int cmd,
 		return ub_npu_submit(priv, (struct ub_npu_cmd_v1 __user *)arg);
 	case UB_NPU_WAIT:
 		return ub_npu_wait(priv, (struct ub_npu_cpl_v1 __user *)arg);
+	case UB_NPU_QUERY:
+		return ub_npu_query(priv, (struct ub_npu_query_v1 __user *)arg);
 	default:
 		return -ENOTTY;
 	}
