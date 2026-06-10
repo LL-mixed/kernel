@@ -13,4 +13,6 @@ ubus-y += services/hotplug/hotplug_core.o services/hotplug/hotplug_ctrl.o
 ubus-y += services/hotplug/hotplug_route.o services/hotplug/hotplug_msg.o
 
 obj-$(CONFIG_UB_UBUS_BUS) += ubus.o
+obj-$(CONFIG_UB_UBUS_BUS) += ub_npu.o
+obj-$(CONFIG_UB_UBUS_BUS) += ub_ssd.o
 obj-y += vendor/
