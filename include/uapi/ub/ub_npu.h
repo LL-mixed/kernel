@@ -8,8 +8,10 @@
 
 #include <linux/types.h>
 #include <linux/ioctl.h>
+#include "gsva.h"
 
 /* NPU opcodes */
+#define NPU_OP_NOOP		0
 #define NPU_OP_MEMCOPY		1
 #define NPU_OP_FILL		2
 #define NPU_OP_VECTOR_ADD_U32	3
@@ -43,6 +45,7 @@ struct ub_npu_buffer_desc_v1 {
 	__u32	access;
 	__u64	gsva_base;
 	__u64	bytes;
+	struct gsva_key_v1 key;
 	__u32	token_id;
 	__u32	token_value;
 };

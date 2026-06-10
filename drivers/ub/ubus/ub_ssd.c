@@ -33,13 +33,15 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 {
 	struct ub_ssd_cmd_v1 kcmd;
 	uint32_t status;
-	int retries;
 
 	if (copy_from_user(&kcmd, ucmd, sizeof(kcmd)))
 		return -EFAULT;
 
 	status = readl(priv->mmio + SSD_STATUS_OFF);
-	if (status & (SSD_STATUS_BUSY | SSD_STATUS_COMPLETION_VALID)) {
+	if (status & SSD_STATUS_BUSY)
+		return -EBUSY;
+
+	if (status & SSD_STATUS_COMPLETION_VALID) {
 		writel(1, priv->mmio + SSD_CLEAR_CPL_OFF);
 		udelay(10);
 	}
@@ -47,6 +49,16 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 	memcpy_toio(priv->mmio + SSD_CMD_SLOT_OFF, &kcmd, sizeof(kcmd));
 
 	writel(1, priv->mmio + SSD_DOORBELL_OFF);
+
+	return 0;
+}
+
+static int ub_ssd_wait(struct ub_ssd_priv *priv,
+		       struct ub_ssd_cpl_v1 __user *ucpl)
+{
+	struct ub_ssd_cpl_v1 kcpl;
+	uint32_t status;
+	int retries;
 
 	for (retries = 0; retries < 500000; retries++) {
 		status = readl(priv->mmio + SSD_STATUS_OFF);
@@ -57,19 +69,6 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 
 	if (!(status & SSD_STATUS_COMPLETION_VALID))
 		return -ETIMEDOUT;
-
-	return 0;
-}
-
-static int ub_ssd_wait(struct ub_ssd_priv *priv,
-		       struct ub_ssd_cpl_v1 __user *ucpl)
-{
-	struct ub_ssd_cpl_v1 kcpl;
-	uint32_t status;
-
-	status = readl(priv->mmio + SSD_STATUS_OFF);
-	if (!(status & SSD_STATUS_COMPLETION_VALID))
-		return -EAGAIN;
 
 	memcpy_fromio(&kcpl, priv->mmio + SSD_CPL_SLOT_OFF, sizeof(kcpl));
 

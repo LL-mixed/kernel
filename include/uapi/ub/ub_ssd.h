@@ -8,6 +8,7 @@
 
 #include <linux/types.h>
 #include <linux/ioctl.h>
+#include "gsva.h"
 
 /* SSD opcodes */
 #define SSD_OP_BLOCK_WRITE	1
@@ -48,6 +49,7 @@ struct ub_ssd_block_ref_v1 {
 struct ub_ssd_buffer_desc_v1 {
 	__u64	gsva_base;
 	__u64	bytes;
+	struct gsva_key_v1 key;
 	__u32	token_id;
 	__u32	token_value;
 };

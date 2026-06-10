@@ -33,14 +33,15 @@ static int ub_npu_submit(struct ub_npu_priv *priv,
 {
 	struct ub_npu_cmd_v1 kcmd;
 	uint32_t status;
-	int retries;
 
 	if (copy_from_user(&kcmd, ucmd, sizeof(kcmd)))
 		return -EFAULT;
 
 	status = readl(priv->mmio + NPU_STATUS_OFF);
-	if (status & (NPU_STATUS_BUSY | NPU_STATUS_COMPLETION_VALID)) {
-		/* Clear previous completion */
+	if (status & NPU_STATUS_BUSY)
+		return -EBUSY;
+
+	if (status & NPU_STATUS_COMPLETION_VALID) {
 		writel(1, priv->mmio + NPU_CLEAR_CPL_OFF);
 		udelay(10);
 	}
@@ -51,7 +52,16 @@ static int ub_npu_submit(struct ub_npu_priv *priv,
 	/* Ring doorbell */
 	writel(1, priv->mmio + NPU_DOORBELL_OFF);
 
-	/* Wait for completion */
+	return 0;
+}
+
+static int ub_npu_wait(struct ub_npu_priv *priv,
+		       struct ub_npu_cpl_v1 __user *ucpl)
+{
+	struct ub_npu_cpl_v1 kcpl;
+	uint32_t status;
+	int retries;
+
 	for (retries = 0; retries < 500000; retries++) {
 		status = readl(priv->mmio + NPU_STATUS_OFF);
 		if (status & NPU_STATUS_COMPLETION_VALID)
@@ -61,19 +71,6 @@ static int ub_npu_submit(struct ub_npu_priv *priv,
 
 	if (!(status & NPU_STATUS_COMPLETION_VALID))
 		return -ETIMEDOUT;
-
-	return 0;
-}
-
-static int ub_npu_wait(struct ub_npu_priv *priv,
-		       struct ub_npu_cpl_v1 __user *ucpl)
-{
-	struct ub_npu_cpl_v1 kcpl;
-	uint32_t status;
-
-	status = readl(priv->mmio + NPU_STATUS_OFF);
-	if (!(status & NPU_STATUS_COMPLETION_VALID))
-		return -EAGAIN;
 
 	memcpy_fromio(&kcpl, priv->mmio + NPU_CPL_SLOT_OFF, sizeof(kcpl));
 
