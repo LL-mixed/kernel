@@ -46,7 +46,19 @@ static int ub_ssd_submit(struct ub_ssd_priv *priv,
 		udelay(10);
 	}
 
-	memcpy_toio(priv->mmio + SSD_CMD_SLOT_OFF, &kcmd, sizeof(kcmd));
+	/* memcpy_toio can't be used here: the packed command struct is 172
+	 * bytes (not a multiple of 8), so the trailing bytes would be
+	 * written as 1-byte stores.  QEMU's MMIO handler only accepts
+	 * 4+ byte accesses, so byte stores trigger read-modify-write
+	 * cycles that corrupt data because the command slot is not
+	 * readable.  Use explicit 4-byte writes instead.
+	 */
+	{
+		const uint32_t *src = (const uint32_t *)&kcmd;
+		int i;
+		for (i = 0; i < sizeof(kcmd) / 4; i++)
+			writel(src[i], priv->mmio + SSD_CMD_SLOT_OFF + i * 4);
+	}
 
 	writel(1, priv->mmio + SSD_DOORBELL_OFF);
 
