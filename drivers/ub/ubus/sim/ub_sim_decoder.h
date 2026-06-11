@@ -148,6 +148,7 @@ struct sim_dec_query_resp {
 struct sim_dec_obmm_bootstrap_record {
 	u64	export_mem_id;
 	u64	remote_uba;
+	u64	backing_uba;
 	u64	size;
 	u64	generation;
 	u64	flags;

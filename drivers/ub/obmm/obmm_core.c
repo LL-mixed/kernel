@@ -759,6 +759,7 @@ static void obmm_bootstrap_to_sim(
 {
 	dst->export_mem_id = src->export_mem_id;
 	dst->remote_uba = src->remote_uba;
+	dst->backing_uba = 0;
 	dst->size = src->size;
 	dst->generation = src->generation;
 	dst->flags = src->flags;
@@ -932,6 +933,7 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 	} break;
 	case OBMM_CMD_BOOTSTRAP_PUBLISH: {
 		struct sim_dec_obmm_bootstrap_record record = {0};
+		struct obmm_region *region;
 
 		ret = (int)copy_from_user(&cmd_param.bootstrap_publish,
 					  (void __user *)arg,
@@ -943,6 +945,16 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 
 		obmm_bootstrap_to_sim(&cmd_param.bootstrap_publish.record,
 				      &record);
+		region = search_get_obmm_region(record.export_mem_id);
+		if (region && region->type == OBMM_EXPORT_REGION) {
+			struct obmm_export_region *e_reg =
+				container_of(region,
+					     struct obmm_export_region,
+					     region);
+			record.backing_uba = sg_phys(e_reg->sgt.sgl);
+		}
+		if (region)
+			put_obmm_region(region);
 		ret = ub_sim_decoder_obmm_bootstrap_publish(record.export_cna,
 							    &record);
 	} break;
