@@ -30,6 +30,7 @@
 
 /* Command flags */
 #define NPU_CMD_ALLOW_TRUNCATE	(1u << 0)
+#define NPU_CMD_INJECT_COH_TIMEOUT	(1u << 1)
 
 /* Completion status codes */
 #define NPU_OK			0

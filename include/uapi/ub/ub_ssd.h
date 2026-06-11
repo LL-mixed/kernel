@@ -20,6 +20,9 @@
 #define SSD_OP_EXPORT_SNAPSHOT	7
 #define SSD_OP_IMPORT_SNAPSHOT	8
 
+/* Command flags */
+#define SSD_CMD_INJECT_COH_TIMEOUT	(1u << 0)
+
 /* Completion status codes */
 #define SSD_OK			0
 #define SSD_ERR_BAD_VERSION	(-1)
