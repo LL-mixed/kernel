@@ -28,6 +28,9 @@
 #define NPU_ACCESS_WRITE	2
 #define NPU_ACCESS_READ_WRITE	3
 
+/* Command flags */
+#define NPU_CMD_ALLOW_TRUNCATE	(1u << 0)
+
 /* Completion status codes */
 #define NPU_OK			0
 #define NPU_ERR_BAD_VERSION	(-1)
