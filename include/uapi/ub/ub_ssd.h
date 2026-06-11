@@ -126,7 +126,7 @@ struct ub_ssd_snapshot_v1 {
 #define SSD_CLEAR_CPL_OFF	0x514
 #define SSD_LAST_REQ_ID_OFF	0x518
 #define SSD_STATS_OFF		0x520
-#define SSD_BACKEND_PROFILE_OFF	0x5a0
+#define SSD_BACKEND_PROFILE_OFF	0x5c0
 
 /* Status register bits */
 #define SSD_STATUS_READY		(1u << 0)
