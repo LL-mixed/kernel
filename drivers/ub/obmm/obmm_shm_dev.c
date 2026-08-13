@@ -10,6 +10,7 @@
 #include <linux/mman.h>
 #include <linux/mm.h>
 #include <linux/overflow.h>
+#include <linux/obmm.h>
 
 #include "obmm_cache.h"
 #include "obmm_sysfs.h"
@@ -345,8 +346,7 @@ static int obmm_shm_fops_mmap(struct file *file, struct vm_area_struct *vma)
 				       &expected_start) ||
 		    expected_start != (u64)vma->vm_start ||
 		    !obmm_gsva_aperture_contains(expected_start, size)) {
-			pr_err("mmap region %d: MAP_GSVA lease mismatch vma=[%#lx,%#lx) "
-			       "offset=%#lx gsva=[%#llx,%#llx)\n",
+			pr_err("mmap region %d: MAP_GSVA lease mismatch vma=[%#lx,%#lx) offset=%#lx gsva=[%#llx,%#llx)\n",
 			       reg->regionid, vma->vm_start, vma->vm_end,
 			       offset, reg->gsva_base,
 			       reg->gsva_base + reg->gsva_size);
@@ -977,6 +977,17 @@ const struct file_operations obmm_shm_fops = { .owner = THIS_MODULE,
 					       .open = obmm_shm_fops_open,
 					       .flush = obmm_shm_fops_flush,
 					       .release = obmm_shm_fops_release };
+
+bool obmm_file_matches_region(struct file *file, u64 mem_id)
+{
+	struct obmm_region *reg;
+
+	if (!file || file->f_op != &obmm_shm_fops || !file->private_data)
+		return false;
+	reg = file->private_data;
+	return reg->regionid >= 0 && (u64)reg->regionid == mem_id;
+}
+EXPORT_SYMBOL_GPL(obmm_file_matches_region);
 
 static void obmm_shm_dev_release(struct device *dev)
 {
