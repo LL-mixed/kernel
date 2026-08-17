@@ -21,9 +21,12 @@
 #define OBMM_SCC_CAP_DIRECT_EL0_UPCALL	_BITULL(5)
 #define OBMM_SCC_CAP_EL0_RESUME		_BITULL(6)
 #define OBMM_SCC_CAP_FULL_CONTEXT	_BITULL(7)
+#define OBMM_SCC_CAP_REPLAY_RETIRE	_BITULL(8)
 
 #define OBMM_SCC_MAP_LOGICAL_MIXED	_BITUL(0)
 #define OBMM_SCC_EVENT_GET_WAIT		_BITUL(0)
+#define OBMM_SCC_EVENT_RETIRE_REPLAY	_BITUL(1)
+#define OBMM_SCC_START_REPLAY_RETIRE	_BITUL(0)
 
 enum obmm_scc_event_kind {
 	OBMM_SCC_EVENT_PENDING = 1,
@@ -163,6 +166,13 @@ struct obmm_scc_observability_v2 {
 	__u64 direct_upcalls;
 };
 
+struct obmm_scc_replay_stats_v1 {
+	__u64 replay_consumed;
+	__u64 replay_mismatch;
+	__u64 replay_ready_high_water;
+	__u64 reserved;
+};
+
 #define OBMM_SCC_IOCTL_MAGIC 0xb8
 #define OBMM_SCC_IOCTL_QUERY_CAPS \
 	_IOR(OBMM_SCC_IOCTL_MAGIC, 0x00, struct obmm_scc_caps_v2)
@@ -179,5 +189,8 @@ struct obmm_scc_observability_v2 {
 	_IOR(OBMM_SCC_IOCTL_MAGIC, 0x0c, struct obmm_scc_observability_v2)
 #define OBMM_SCC_IOCTL_GET_EVENT \
 	_IOWR(OBMM_SCC_IOCTL_MAGIC, 0x0d, struct obmm_scc_event_v2)
+#define OBMM_SCC_IOCTL_SCHEDULER_ENTER _IO(OBMM_SCC_IOCTL_MAGIC, 0x0e)
+#define OBMM_SCC_IOCTL_GET_REPLAY_STATS \
+	_IOR(OBMM_SCC_IOCTL_MAGIC, 0x0f, struct obmm_scc_replay_stats_v1)
 
 #endif
