@@ -27,6 +27,7 @@
 #include "obmm_cache.h"
 #include "obmm_export.h"
 #include "obmm_shm_dev.h"
+#include "obmm_sim_decoder.h"
 
 int export_flags_to_region_flags(unsigned long *region_flags, unsigned long user_flags)
 {
@@ -278,6 +279,19 @@ int obmm_unexport(const struct obmm_cmd_unexport *cmd_unexport)
 	}
 
 	e_reg = container_of(reg, struct obmm_export_region, region);
+	if (e_reg->sim_bootstrap_published) {
+		struct obmm_sim_dec_export_retire_info info = {
+			.export_mem_id = cmd_unexport->mem_id,
+			.remote_uba = e_reg->uba,
+			.size = e_reg->region.mem_size,
+			.export_cna = e_reg->sim_export_cna,
+			.token_id = e_reg->tokenid,
+		};
+
+		ret = obmm_sim_decoder_retire_export(&info);
+		if (ret)
+			goto err_unexport_common;
+	}
 	ret = obmm_unexport_common(e_reg);
 	if (ret)
 		goto err_unexport_common;

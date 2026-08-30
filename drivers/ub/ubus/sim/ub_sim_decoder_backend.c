@@ -41,14 +41,27 @@ static int sim_dec_status_to_errno(u32 status)
 
 /* Backend-specific implementations */
 static int sim_backend_map(struct ub_sim_decoder *dec,
-			   struct sim_dec_map_req *req, u64 *map_id)
+			   struct sim_dec_map_req *req,
+			   u64 remote_export_mem_id,
+			   u64 remote_export_generation, u64 *map_id)
 {
+	struct sim_dec_obmm_map_v2_req v2_req = { 0 };
 	struct sim_dec_map_resp resp = {0};
 	int ret;
 
-	/* Send MAP command through control adapter */
-	ret = ub_sim_dec_send_cmd(&dec->adapter, req->scna, SIM_DEC_OP_MAP,
-				  req, sizeof(*req), &resp, sizeof(resp));
+	if (remote_export_mem_id && remote_export_generation) {
+		v2_req.map_req = *req;
+		v2_req.remote_export_mem_id = remote_export_mem_id;
+		v2_req.remote_export_generation = remote_export_generation;
+		ret = ub_sim_dec_send_cmd(&dec->adapter, req->scna,
+					  SIM_DEC_OP_OBMM_MAP_V2,
+					  &v2_req, sizeof(v2_req),
+					  &resp, sizeof(resp));
+	} else {
+		ret = ub_sim_dec_send_cmd(&dec->adapter, req->scna,
+					  SIM_DEC_OP_MAP, req, sizeof(*req),
+					  &resp, sizeof(resp));
+	}
 	if (ret < 0)
 		return ret;
 
@@ -161,6 +174,14 @@ static int sim_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
 				   &req, sizeof(req), resp, sizeof(*resp));
 }
 
+static int sim_backend_obmm_export_retire(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_export_retire_req *req)
+{
+	return ub_sim_dec_send_cmd(&dec->adapter, scna,
+				   SIM_DEC_OP_OBMM_EXPORT_RETIRE,
+				   (void *)req, sizeof(*req), NULL, 0);
+}
+
 /* Hardware backend stubs */
 static int hw_backend_map(struct ub_sim_decoder *dec,
 			  struct sim_dec_map_req *req, u64 *map_id)
@@ -192,14 +213,19 @@ static int hw_backend_query(struct ub_sim_decoder *dec, u64 map_id,
 
 /* Backend API entry points */
 int ub_sim_dec_backend_map(struct ub_sim_decoder *dec,
-			   struct sim_dec_map_req *req, u64 *map_id)
+			   struct sim_dec_map_req *req,
+			   u64 remote_export_mem_id,
+			   u64 remote_export_generation, u64 *map_id)
 {
 	if (!dec || !req || !map_id)
+		return -EINVAL;
+	if (!!remote_export_mem_id != !!remote_export_generation)
 		return -EINVAL;
 
 	switch (dec->backend_type) {
 	case UB_SIM_DEC_BACKEND_SIM:
-		return sim_backend_map(dec, req, map_id);
+		return sim_backend_map(dec, req, remote_export_mem_id,
+				       remote_export_generation, map_id);
 	case UB_SIM_DEC_BACKEND_HW:
 		return hw_backend_map(dec, req, map_id);
 	default:
@@ -326,6 +352,23 @@ int ub_sim_dec_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
 	}
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_obmm_bootstrap_lookup);
+
+int ub_sim_dec_backend_obmm_export_retire(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_export_retire_req *req)
+{
+	if (!dec || !req)
+		return -EINVAL;
+
+	switch (dec->backend_type) {
+	case UB_SIM_DEC_BACKEND_SIM:
+		return sim_backend_obmm_export_retire(dec, scna, req);
+	case UB_SIM_DEC_BACKEND_HW:
+		return -ENOTSUPP;
+	default:
+		return -EINVAL;
+	}
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_obmm_export_retire);
 
 /* GSVA V1 Backend implementations */
 static int sim_backend_gsva_map_v1(struct ub_sim_decoder *dec,

@@ -114,10 +114,13 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		ret = ub_sim_decoder_gva_map(&g_decoder->service, &gva_req, &map_id);
 		if (ret == -ENOTSUPP || ret == -EOPNOTSUPP) {
 			pr_info("UB SIM Decoder: no GVA map backend, fallback to legacy map\n");
-			ret = ub_sim_decoder_map(&g_decoder->service, &map_req, &map_id);
+			ret = ub_sim_decoder_map(&g_decoder->service, &map_req,
+						 0, 0, &map_id);
 		}
 	} else {
-		ret = ub_sim_decoder_map(&g_decoder->service, &map_req, &map_id);
+		ret = ub_sim_decoder_map(&g_decoder->service, &map_req,
+					 info->remote_export_mem_id,
+					 info->remote_export_generation, &map_id);
 	}
 	if (ret) {
 		pr_err("UB SIM Decoder: OBMM import map failed: %pe\n",
@@ -161,6 +164,31 @@ static int ub_sim_decoder_obmm_unimport(void *unimport_info)
 
 	pr_info("UB SIM Decoder: OBMM unimport unmapped map_id=%#llx\n",
 		info->map_id);
+	return 0;
+}
+
+static int ub_sim_decoder_obmm_export_retire_cb(void *retire_info)
+{
+	const struct obmm_sim_dec_export_retire_info *info = retire_info;
+	struct sim_dec_obmm_export_retire_req req = { 0 };
+	int ret;
+
+	if (!info || !g_decoder || !g_decoder->enabled)
+		return -EINVAL;
+	req.export_mem_id = info->export_mem_id;
+	req.remote_uba = info->remote_uba;
+	req.size = info->size;
+	req.export_cna = info->export_cna;
+	req.token_id = info->token_id;
+	ret = ub_sim_dec_backend_obmm_export_retire(g_decoder,
+						     info->export_cna, &req);
+	if (ret) {
+		pr_err("UB SIM Decoder: OBMM export retire failed mem_id=%#llx: %pe\n",
+		       info->export_mem_id, ERR_PTR(ret));
+		return ret;
+	}
+	pr_info("UB SIM Decoder: OBMM export retired mem_id=%#llx uba=%#llx\n",
+		info->export_mem_id, info->remote_uba);
 	return 0;
 }
 
@@ -208,6 +236,11 @@ static int ub_sim_decoder_init(void)
 	if (ret < 0)
 		pr_warn("UB SIM Decoder: failed to register OBMM unimport callback (%d)\n",
 			ret);
+	ret = obmm_register_export_retire_callback(
+		ub_sim_decoder_obmm_export_retire_cb);
+	if (ret < 0)
+		pr_warn("UB SIM Decoder: failed to register OBMM export retire callback (%d)\n",
+			ret);
 
 	g_decoder->enabled = true;
 	pr_info("UB SIM Decoder: module loaded\n");
@@ -230,6 +263,7 @@ static void ub_sim_decoder_exit(void)
 	if (!g_decoder)
 		return;
 
+	obmm_unregister_export_retire_callback();
 	obmm_unregister_unimport_callback();
 	obmm_unregister_import_callback();
 

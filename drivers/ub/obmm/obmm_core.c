@@ -953,10 +953,19 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 					     region);
 			record.backing_uba = sg_phys(e_reg->sgt.sgl);
 		}
-		if (region)
-			put_obmm_region(region);
 		ret = ub_sim_decoder_obmm_bootstrap_publish(record.export_cna,
 							    &record);
+		if (!ret && region && region->type == OBMM_EXPORT_REGION) {
+			struct obmm_export_region *e_reg =
+				container_of(region,
+					     struct obmm_export_region,
+					     region);
+
+			e_reg->sim_export_cna = record.export_cna;
+			e_reg->sim_bootstrap_published = true;
+		}
+		if (region)
+			put_obmm_region(region);
 	} break;
 	case OBMM_CMD_BOOTSTRAP_LOOKUP: {
 		struct sim_dec_obmm_bootstrap_lookup_resp resp = {0};

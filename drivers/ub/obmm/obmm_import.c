@@ -25,6 +25,7 @@
 static DEFINE_MUTEX(g_obmm_sim_dec_cb_lock);
 static int (*g_obmm_import_cb)(void *);
 static int (*g_obmm_unimport_cb)(void *);
+static int (*g_obmm_export_retire_cb)(void *);
 
 int obmm_register_import_callback(int (*import_fn)(void *))
 {
@@ -78,8 +79,56 @@ int obmm_unregister_unimport_callback(void)
 }
 EXPORT_SYMBOL_GPL(obmm_unregister_unimport_callback);
 
+int obmm_register_export_retire_callback(int (*retire_fn)(void *))
+{
+	int ret = 0;
+
+	if (!retire_fn)
+		return -EINVAL;
+
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	if (g_obmm_export_retire_cb)
+		ret = -EBUSY;
+	else
+		g_obmm_export_retire_cb = retire_fn;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(obmm_register_export_retire_callback);
+
+int obmm_unregister_export_retire_callback(void)
+{
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	g_obmm_export_retire_cb = NULL;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(obmm_unregister_export_retire_callback);
+
+int obmm_sim_decoder_retire_export(
+	const struct obmm_sim_dec_export_retire_info *info)
+{
+	int (*cb)(void *) = NULL;
+
+	if (!info)
+		return -EINVAL;
+	mutex_lock(&g_obmm_sim_dec_cb_lock);
+	cb = g_obmm_export_retire_cb;
+	mutex_unlock(&g_obmm_sim_dec_cb_lock);
+	/* A published simulator export must never retire without publishing its
+	 * shared tombstone.  Allowing unexport to continue after the callback has
+	 * disappeared would leave remote mappings apparently live while their
+	 * backing pages are being released.
+	 */
+	return cb ? cb((void *)info) : -ENODEV;
+}
+EXPORT_SYMBOL_GPL(obmm_sim_decoder_retire_export);
+
 static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
-					  u64 *remote_uba, u32 *token_value,
+					  u64 *remote_uba,
+					  u64 *remote_export_mem_id,
+					  u64 *remote_export_generation,
+					  u32 *token_value,
 					  u64 *local_va, u64 *home_va,
 					  u64 *pte_offset, u32 *vmid, u32 *asid,
 					  u32 *tid, u32 *p_tag, u32 *cache_policy,
@@ -87,10 +136,13 @@ static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
 					  u32 *access_flags, u64 *gva_id,
 					  u64 *segment_id, u64 *epoch)
 {
+	const struct obmm_sim_dec_import_priv_v3 *priv_v3;
 	const struct obmm_sim_dec_import_priv_v2 *priv_v2;
 	const struct obmm_sim_dec_import_priv_v1 *priv;
 
 	*remote_uba = 0;
+	*remote_export_mem_id = 0;
+	*remote_export_generation = 0;
 	*token_value = 0;
 	*local_va = 0;
 	*home_va = 0;
@@ -117,6 +169,20 @@ static void obmm_sim_dec_parse_import_priv(const struct obmm_region *region,
 	if (priv->version == OBMM_SIM_DEC_PRIV_VER_1) {
 		*remote_uba = priv->remote_uba;
 		*token_value = priv->token_value;
+		return;
+	}
+
+	if (priv->version == OBMM_SIM_DEC_PRIV_VER_3 &&
+	    region->priv_len >= sizeof(*priv_v3) &&
+	    priv->len >= sizeof(*priv_v3)) {
+		priv_v3 = (const struct obmm_sim_dec_import_priv_v3 *)region->priv;
+		if (!priv_v3->remote_export_mem_id ||
+		    !priv_v3->remote_export_generation)
+			return;
+		*remote_uba = priv_v3->remote_uba;
+		*remote_export_mem_id = priv_v3->remote_export_mem_id;
+		*remote_export_generation = priv_v3->remote_export_generation;
+		*token_value = priv_v3->token_value;
 		return;
 	}
 
@@ -148,6 +214,8 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	struct obmm_sim_dec_import_info info = { 0 };
 	int (*cb)(void *) = NULL;
 	u64 remote_uba;
+	u64 remote_export_mem_id = 0;
+	u64 remote_export_generation = 0;
 	u32 token_value;
 	u64 local_va = 0;
 	u64 home_va = 0;
@@ -171,7 +239,9 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	if (!cb)
 		return 0;
 
-	obmm_sim_dec_parse_import_priv(&i_reg->region, &remote_uba, &token_value,
+	obmm_sim_dec_parse_import_priv(&i_reg->region, &remote_uba,
+				      &remote_export_mem_id,
+				      &remote_export_generation, &token_value,
 				      &local_va, &home_va, &pte_offset, &vmid,
 				      &asid, &tid, &p_tag, &cache_policy,
 				      &map_source, &address_profile, &access_flags,
@@ -192,6 +262,8 @@ static int obmm_sim_dec_map_import(struct obmm_import_region *i_reg)
 	info.local_pa = i_reg->pa;
 	info.size = i_reg->region.mem_size;
 	info.remote_uba = remote_uba;
+	info.remote_export_mem_id = remote_export_mem_id;
+	info.remote_export_generation = remote_export_generation;
 	info.token_id = i_reg->tokenid;
 	info.token_value = token_value;
 	info.scna = i_reg->scna;

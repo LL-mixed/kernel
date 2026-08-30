@@ -11,6 +11,7 @@
 #define OBMM_SIM_DEC_PRIV_MAGIC 0x53444950U /* "SDIP" */
 #define OBMM_SIM_DEC_PRIV_VER_1 1
 #define OBMM_SIM_DEC_PRIV_VER_2 2
+#define OBMM_SIM_DEC_PRIV_VER_3 3
 
 /* map_source values for GVA metadata */
 #define OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM 1
@@ -63,10 +64,23 @@ struct obmm_sim_dec_import_priv_v1 {
 	u32 flags;
 };
 
+struct obmm_sim_dec_import_priv_v3 {
+	u32 magic;
+	u16 version;
+	u16 len;
+	u64 remote_uba;
+	u32 token_value;
+	u32 flags;
+	u64 remote_export_mem_id;
+	u64 remote_export_generation;
+};
+
 struct obmm_sim_dec_import_info {
 	u64 local_pa;
 	u64 size;
 	u64 remote_uba;
+	u64 remote_export_mem_id;
+	u64 remote_export_generation;
 	u32 token_id;
 	u32 token_value;
 	u32 scna;
@@ -98,9 +112,21 @@ struct obmm_sim_dec_unimport_info {
 	bool is_gsva;
 };
 
+struct obmm_sim_dec_export_retire_info {
+	u64 export_mem_id;
+	u64 remote_uba;
+	u64 size;
+	u32 export_cna;
+	u32 token_id;
+};
+
 int obmm_register_import_callback(int (*import_fn)(void *));
 int obmm_unregister_import_callback(void);
 int obmm_register_unimport_callback(int (*unimport_fn)(void *));
 int obmm_unregister_unimport_callback(void);
+int obmm_register_export_retire_callback(int (*retire_fn)(void *));
+int obmm_unregister_export_retire_callback(void);
+int obmm_sim_decoder_retire_export(
+	const struct obmm_sim_dec_export_retire_info *info);
 
 #endif /* OBMM_SIM_DECODER_H */

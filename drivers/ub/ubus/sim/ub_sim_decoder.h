@@ -32,6 +32,8 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_GSVA_UNMAP_V1 = 0x0a,
 	SIM_DEC_OP_GSVA_EVENT_V1 = 0x0b,
 	SIM_DEC_OP_GSVA_QUERY_V1 = 0x0c,
+	SIM_DEC_OP_OBMM_EXPORT_RETIRE = 0x0d,
+	SIM_DEC_OP_OBMM_MAP_V2 = 0x0e,
 };
 
 /* Control command status */
@@ -67,6 +69,12 @@ struct sim_dec_map_req {
 	u32	upi;
 	u32	src_eid;
 };
+
+struct sim_dec_obmm_map_v2_req {
+	struct sim_dec_map_req map_req;
+	u64 remote_export_mem_id;
+	u64 remote_export_generation;
+} __packed;
 
 enum sim_dec_map_source {
 	SIM_DEC_MAP_SOURCE_LEGACY_OBMM = 1,
@@ -173,6 +181,14 @@ struct sim_dec_obmm_bootstrap_lookup_resp {
 	u32	rsvd;
 	struct sim_dec_obmm_bootstrap_record records[SIM_DEC_OBMM_BOOTSTRAP_MAX_NODES];
 };
+
+struct sim_dec_obmm_export_retire_req {
+	u64 export_mem_id;
+	u64 remote_uba;
+	u64 size;
+	u32 export_cna;
+	u32 token_id;
+} __packed;
 
 enum ub_sim_dec_map_state {
 	UB_SIM_DEC_MAP_CREATING = 0,
@@ -317,7 +333,9 @@ void ub_sim_decoder_service_exit(struct ub_sim_decoder_service *svc);
 int ub_sim_decoder_proc_init(struct ub_sim_decoder_service *svc);
 void ub_sim_decoder_proc_exit(void);
 int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
-		       struct sim_dec_map_req *req, u64 *map_id);
+		       struct sim_dec_map_req *req,
+		       u64 remote_export_mem_id,
+		       u64 remote_export_generation, u64 *map_id);
 int ub_sim_decoder_gva_map(struct ub_sim_decoder_service *svc,
 			   struct sim_dec_gva_map_req *req, u64 *map_id);
 int ub_sim_decoder_unmap(struct ub_sim_decoder_service *svc, u64 map_id);
@@ -341,7 +359,9 @@ int ub_sim_dec_send_cmd(struct ub_sim_dec_ctrl_adapter *adapter,
 
 /* Backend API */
 int ub_sim_dec_backend_map(struct ub_sim_decoder *dec,
-			   struct sim_dec_map_req *req, u64 *map_id);
+			   struct sim_dec_map_req *req,
+			   u64 remote_export_mem_id,
+			   u64 remote_export_generation, u64 *map_id);
 int ub_sim_dec_backend_gva_map(struct ub_sim_decoder *dec,
 			       struct sim_dec_gva_map_req *req, u64 *map_id,
 			       struct sim_dec_map_resp *resp_out);
@@ -357,6 +377,8 @@ int ub_sim_dec_backend_obmm_bootstrap_publish(struct ub_sim_decoder *dec,
 int ub_sim_dec_backend_obmm_bootstrap_lookup(struct ub_sim_decoder *dec,
 		u32 scna, u32 node_count, u64 generation,
 		struct sim_dec_obmm_bootstrap_lookup_resp *resp);
+int ub_sim_dec_backend_obmm_export_retire(struct ub_sim_decoder *dec,
+		u32 scna, const struct sim_dec_obmm_export_retire_req *req);
 
 /* GSVA V1 Backend API */
 int ub_sim_dec_backend_gsva_map_v1(struct ub_sim_decoder *dec,

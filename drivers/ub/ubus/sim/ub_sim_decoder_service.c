@@ -273,7 +273,9 @@ static bool check_gva_route_overlap(struct ub_sim_decoder_service *svc,
 }
 
 int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
-		       struct sim_dec_map_req *req, u64 *map_id)
+		       struct sim_dec_map_req *req,
+		       u64 remote_export_mem_id,
+		       u64 remote_export_generation, u64 *map_id)
 {
 	struct ub_sim_dec_map_entry *entry;
 	u64 new_id;
@@ -332,7 +334,9 @@ int ub_sim_decoder_map(struct ub_sim_decoder_service *svc,
 	list_add_tail(&entry->list, &svc->map_list);
 	mutex_unlock(&svc->lock);
 
-	ret = ub_sim_dec_backend_map(g_ub_sim_decoder, req, &new_id);
+	ret = ub_sim_dec_backend_map(g_ub_sim_decoder, req,
+				     remote_export_mem_id,
+				     remote_export_generation, &new_id);
 	if (ret) {
 		pr_err("UB SIM Decoder: backend map failed: %pe\n", ERR_PTR(ret));
 		mutex_lock(&svc->lock);

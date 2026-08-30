@@ -229,6 +229,8 @@ struct obmm_export_region {
 	u64 requested_uba;
 	bool gsva_fixed_uba;
 	bool gsva_matt_mapped;
+	u32 sim_export_cna;
+	bool sim_bootstrap_published;
 	unsigned int vendor_len;
 	void *vendor_info;
 	int affinity;
