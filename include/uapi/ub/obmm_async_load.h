@@ -6,12 +6,17 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#define OBMM_ASYNC_LOAD_ABI_VERSION 2
+#define OBMM_ASYNC_LOAD_ABI_VERSION 3
 #define OBMM_ASYNC_LOAD_MAX_CONTEXTS 64
 #define OBMM_ASYNC_LOAD_MAX_PENDING_LOADS 64
 #define OBMM_ASYNC_LOAD_MAX_EVENTS 128
 #define OBMM_ASYNC_LOAD_CONTEXT_STATE_BYTES 832
+#define OBMM_ASYNC_LOAD_EVENT_PRODUCER_HEADER_BYTES 64
+#define OBMM_ASYNC_LOAD_EVENT_SLOT_BYTES 128
+#define OBMM_ASYNC_LOAD_EVENT_CONSUMER_BYTES 64
 #define OBMM_ASYNC_LOAD_RESUME_HLT_IMM 0x5343
+#define OBMM_ASYNC_LOAD_WAIT_HLT_IMM 0x5344
+#define OBMM_ASYNC_LOAD_SCHEDULER_ENTER_HLT_IMM 0x5345
 
 #define OBMM_ASYNC_LOAD_CAP_SCALAR_1		_BITULL(0)
 #define OBMM_ASYNC_LOAD_CAP_SCALAR_2		_BITULL(1)
@@ -22,9 +27,11 @@
 #define OBMM_ASYNC_LOAD_CAP_EL0_RESUME		_BITULL(6)
 #define OBMM_ASYNC_LOAD_CAP_FULL_CONTEXT	_BITULL(7)
 #define OBMM_ASYNC_LOAD_CAP_REPLAY_RETIRE	_BITULL(8)
+#define OBMM_ASYNC_LOAD_CAP_KERNEL_FREE_EVENT_RING _BITULL(9)
+#define OBMM_ASYNC_LOAD_CAP_EL0_WAIT_WAKE	_BITULL(10)
+#define OBMM_ASYNC_LOAD_CAP_EL0_SCHEDULER_ENTER _BITULL(11)
 
 #define OBMM_ASYNC_LOAD_MAP_LOGICAL_MIXED	_BITUL(0)
-#define OBMM_ASYNC_LOAD_EVENT_GET_WAIT		_BITUL(0)
 #define OBMM_ASYNC_LOAD_EVENT_RETIRE_REPLAY	_BITUL(1)
 #define OBMM_ASYNC_LOAD_START_REPLAY_RETIRE	_BITUL(0)
 
@@ -64,7 +71,7 @@ struct obmm_async_load_context_v2 {
 	__u64 reserved;
 };
 
-struct obmm_async_load_caps_v2 {
+struct obmm_async_load_caps_v3 {
 	__u32 abi_version;
 	__u16 context_entries;
 	__u16 pending_load_entries;
@@ -75,6 +82,14 @@ struct obmm_async_load_caps_v2 {
 	__u64 owner_generation;
 	__u32 clock_mhz;
 	__u32 resume_hlt_imm;
+	__u32 wait_hlt_imm;
+	__u32 scheduler_enter_hlt_imm;
+	__u32 event_slot_bytes;
+	__u32 event_producer_header_bytes;
+	__u64 event_ring_mmap_offset;
+	__u64 event_ring_mmap_bytes;
+	__u64 event_consumer_mmap_offset;
+	__u64 event_consumer_mmap_bytes;
 	__u64 reserved[3];
 };
 
@@ -95,7 +110,7 @@ struct obmm_async_load_map_unregister_v1 {
 	__u64 map_generation;
 };
 
-struct obmm_async_load_start_v2 {
+struct obmm_async_load_start_v3 {
 	__u32 home_cpu;
 	__u32 flags;
 	__u64 owner_generation;
@@ -105,22 +120,48 @@ struct obmm_async_load_start_v2 {
 	__u32 reserved0;
 };
 
-struct obmm_async_load_event_v2 {
+struct obmm_async_load_event_producer_v3 {
+	__u32 abi_version;
+	__u16 event_depth;
+	__u16 event_slot_bytes;
+	__u64 owner_generation;
+	__u64 producer_sequence;
+	__u64 published_events;
+	__u64 wait_wakeups;
+	__u64 reserved[3];
+};
+
+struct obmm_async_load_event_consumer_v3 {
+	__u32 abi_version;
+	__u32 flags;
+	__u64 owner_generation;
+	__u64 consumer_sequence;
+	__u64 wait_count;
+	__u64 scheduler_enter_count;
+	__u64 reserved[3];
+};
+
+struct obmm_async_load_event_v3 {
 	__u64 sequence;
+	__u64 owner_generation;
 	__u64 context_id;
 	__u64 plt_token;
 	__u64 interrupted_pc;
 	__u64 fault_pc;
 	__u64 effective_va;
 	__u64 value;
+	__u64 map_id;
+	__u64 map_generation;
+	__u64 model_phase_generation;
 	__u32 kind;
 	__u32 status;
 	__u16 rt;
 	__u16 access_bytes;
 	__u32 flags;
+	__u64 reserved[3];
 };
 
-struct obmm_async_load_stats_v2 {
+struct obmm_async_load_stats_v3 {
 	__u64 pending_loads;
 	__u64 completed_loads;
 	/* Completion events handed to EL0; QEMU does not commit architectural state. */
@@ -128,7 +169,7 @@ struct obmm_async_load_stats_v2 {
 	__u64 faulted_loads;
 	__u64 stale_completions;
 	__u64 duplicate_completions;
-	/* QEMU-owned context counters remain zero in ABI v2. */
+	/* QEMU-owned context counters remain zero in ABI v3. */
 	__u64 context_saves;
 	__u64 context_restores;
 	__u64 context_switches;
@@ -144,7 +185,7 @@ struct obmm_async_load_stats_v2 {
 	__u64 fail_stop;
 };
 
-struct obmm_async_load_observability_v2 {
+struct obmm_async_load_observability_v3 {
 	__u64 abi_version;
 	__u64 async_load_pending_current;
 	__u64 backend_pending_current;
@@ -157,7 +198,7 @@ struct obmm_async_load_observability_v2 {
 	__u64 backend_pending_high_water;
 	__u64 backend_sink_copy_bytes;
 	__u64 backend_sink_copy_ns;
-	/* These four QEMU scheduler-cycle counters are zero in ABI v2. */
+	/* These four QEMU scheduler-cycle counters are zero in ABI v3. */
 	__u64 save_cycles;
 	__u64 schedule_cycles;
 	__u64 restore_cycles;
@@ -175,21 +216,18 @@ struct obmm_async_load_replay_stats_v1 {
 
 #define OBMM_ASYNC_LOAD_IOCTL_MAGIC 0xb8
 #define OBMM_ASYNC_LOAD_IOCTL_QUERY_CAPS \
-	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v2)
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v3)
 #define OBMM_ASYNC_LOAD_IOCTL_REGISTER_MAP \
 	_IOWR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x01, struct obmm_async_load_map_register_v1)
 #define OBMM_ASYNC_LOAD_IOCTL_UNREGISTER_MAP \
 	_IOW(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x02, struct obmm_async_load_map_unregister_v1)
 #define OBMM_ASYNC_LOAD_IOCTL_START \
-	_IOWR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x06, struct obmm_async_load_start_v2)
+	_IOWR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x06, struct obmm_async_load_start_v3)
 #define OBMM_ASYNC_LOAD_IOCTL_STOP _IO(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x07)
 #define OBMM_ASYNC_LOAD_IOCTL_GET_STATS \
-	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x08, struct obmm_async_load_stats_v2)
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x08, struct obmm_async_load_stats_v3)
 #define OBMM_ASYNC_LOAD_IOCTL_GET_OBSERVABILITY \
-	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0c, struct obmm_async_load_observability_v2)
-#define OBMM_ASYNC_LOAD_IOCTL_GET_EVENT \
-	_IOWR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0d, struct obmm_async_load_event_v2)
-#define OBMM_ASYNC_LOAD_IOCTL_SCHEDULER_ENTER _IO(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0e)
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0c, struct obmm_async_load_observability_v3)
 #define OBMM_ASYNC_LOAD_IOCTL_GET_REPLAY_STATS \
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0f, struct obmm_async_load_replay_stats_v1)
 
