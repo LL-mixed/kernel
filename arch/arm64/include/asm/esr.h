@@ -130,6 +130,8 @@
 #define ESR_ELx_FSC_SECC_TTW1	(0x1d)
 #define ESR_ELx_FSC_SECC_TTW2	(0x1e)
 #define ESR_ELx_FSC_SECC_TTW3	(0x1f)
+/* Implementation-defined abort used by the UB remote-load simulation. */
+#define ESR_ELx_FSC_REMOTE_LOAD	(0x3a)
 
 /* ISS field definitions for Data Aborts */
 #define ESR_ELx_ISV_SHIFT	(24)

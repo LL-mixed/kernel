@@ -30,10 +30,12 @@
 #define OBMM_ASYNC_LOAD_CAP_KERNEL_FREE_EVENT_RING _BITULL(9)
 #define OBMM_ASYNC_LOAD_CAP_EL0_WAIT_WAKE	_BITULL(10)
 #define OBMM_ASYNC_LOAD_CAP_EL0_SCHEDULER_ENTER _BITULL(11)
+#define OBMM_ASYNC_LOAD_CAP_KERNEL_TASK_REPLAY	_BITULL(12)
 
 #define OBMM_ASYNC_LOAD_MAP_LOGICAL_MIXED	_BITUL(0)
 #define OBMM_ASYNC_LOAD_EVENT_RETIRE_REPLAY	_BITUL(1)
 #define OBMM_ASYNC_LOAD_START_REPLAY_RETIRE	_BITUL(0)
+#define OBMM_ASYNC_LOAD_START_KERNEL_TASK	_BITUL(1)
 
 enum obmm_async_load_event_kind {
 	OBMM_ASYNC_LOAD_EVENT_PENDING = 1,
@@ -214,6 +216,17 @@ struct obmm_async_load_replay_stats_v1 {
 	__u64 reserved;
 };
 
+struct obmm_async_load_kernel_task_stats_v1 {
+	__u64 faults;
+	__u64 pending_events;
+	__u64 completion_events;
+	__u64 task_sleeps;
+	__u64 task_wakeups;
+	__u64 protocol_errors;
+	__u64 timeouts;
+	__u64 interrupted_waits;
+};
+
 #define OBMM_ASYNC_LOAD_IOCTL_MAGIC 0xb8
 #define OBMM_ASYNC_LOAD_IOCTL_QUERY_CAPS \
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v3)
@@ -230,5 +243,8 @@ struct obmm_async_load_replay_stats_v1 {
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0c, struct obmm_async_load_observability_v3)
 #define OBMM_ASYNC_LOAD_IOCTL_GET_REPLAY_STATS \
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x0f, struct obmm_async_load_replay_stats_v1)
+#define OBMM_ASYNC_LOAD_IOCTL_GET_KERNEL_TASK_STATS \
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x10, \
+	     struct obmm_async_load_kernel_task_stats_v1)
 
 #endif

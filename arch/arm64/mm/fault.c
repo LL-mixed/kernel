@@ -17,6 +17,9 @@
 #include <linux/init.h>
 #include <linux/kasan.h>
 #include <linux/kprobes.h>
+#include <linux/arm64_remote_load.h>
+#include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/uaccess.h>
 #include <linux/page-flags.h>
 #include <linux/sched/signal.h>
@@ -79,6 +82,59 @@ struct fault_info {
 
 static const struct fault_info fault_info[];
 static struct fault_info debug_fault_info[];
+
+static DEFINE_MUTEX(remote_load_fault_lock);
+static const struct arm64_remote_load_fault_ops *remote_load_fault_ops;
+
+int arm64_register_remote_load_fault_handler(
+	const struct arm64_remote_load_fault_ops *ops)
+{
+	int ret = 0;
+
+	if (!ops || !ops->handle || !ops->owner)
+		return -EINVAL;
+
+	mutex_lock(&remote_load_fault_lock);
+	if (remote_load_fault_ops)
+		ret = -EBUSY;
+	else
+		remote_load_fault_ops = ops;
+	mutex_unlock(&remote_load_fault_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(arm64_register_remote_load_fault_handler);
+
+void arm64_unregister_remote_load_fault_handler(
+	const struct arm64_remote_load_fault_ops *ops)
+{
+	mutex_lock(&remote_load_fault_lock);
+	if (remote_load_fault_ops == ops)
+		remote_load_fault_ops = NULL;
+	mutex_unlock(&remote_load_fault_lock);
+}
+EXPORT_SYMBOL_GPL(arm64_unregister_remote_load_fault_handler);
+
+static int do_remote_load_fault(unsigned long far, unsigned long esr,
+				struct pt_regs *regs)
+{
+	const struct arm64_remote_load_fault_ops *ops;
+	int ret;
+
+	if (!user_mode(regs))
+		return -EFAULT;
+
+	mutex_lock(&remote_load_fault_lock);
+	ops = remote_load_fault_ops;
+	if (!ops || !try_module_get(ops->owner))
+		ops = NULL;
+	mutex_unlock(&remote_load_fault_lock);
+	if (!ops)
+		return -ENODEV;
+
+	ret = ops->handle(far, esr, regs);
+	module_put(ops->owner);
+	return ret;
+}
 
 static inline const struct fault_info *esr_to_fault_info(unsigned long esr)
 {
@@ -1003,7 +1059,7 @@ static const struct fault_info fault_info[] = {
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 55"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 56"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 57"			},
-	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 58" 			},
+	{ do_remote_load_fault, SIGBUS, BUS_OBJERR,	"UB remote load pending"	},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 59"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"unknown 60"			},
 	{ do_bad,		SIGKILL, SI_KERNEL,	"section domain fault"		},
