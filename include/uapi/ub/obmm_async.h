@@ -93,6 +93,17 @@ struct obmm_async_map_register_v1 {
 	__u64 map_generation;
 };
 
+struct obmm_async_map_register_v2 {
+	__u64 mem_id;
+	__u64 mapped_addr;
+	__u64 length;
+	__u32 flags;
+	__u32 reserved;
+	__u64 map_id;
+	__u64 map_generation;
+	__u64 local_pa;
+};
+
 struct obmm_async_map_unregister_v1 {
 	__u64 map_id;
 	__u64 map_generation;
@@ -155,5 +166,7 @@ struct obmm_async_observability_v1 {
 	     struct obmm_async_observability_v1)
 #define OBMM_ASYNC_IOCTL_RESET_OBSERVABILITY \
 	_IO(OBMM_ASYNC_IOCTL_MAGIC, 0x08)
+#define OBMM_ASYNC_IOCTL_MAP_REGISTER_V2 \
+	_IOWR(OBMM_ASYNC_IOCTL_MAGIC, 0x09, struct obmm_async_map_register_v2)
 
 #endif
