@@ -34,9 +34,11 @@
 #define OBMM_ASYNC_LOAD_CAP_NC_REPLAY_TOKEN	_BITULL(13)
 #define OBMM_ASYNC_LOAD_CAP_SVC_CONTEXT_RESUME	_BITULL(14)
 #define OBMM_ASYNC_LOAD_CAP_WFE_WAIT		_BITULL(15)
+#define OBMM_ASYNC_LOAD_CAP_CACHEABLE_FILL_REPLAY _BITULL(16)
 
 #define OBMM_ASYNC_LOAD_MAP_LOGICAL_MIXED	_BITUL(0)
 #define OBMM_ASYNC_LOAD_EVENT_RETIRE_REPLAY	_BITUL(1)
+#define OBMM_ASYNC_LOAD_EVENT_CACHEABLE_FILL	_BITUL(2)
 #define OBMM_ASYNC_LOAD_START_REPLAY_RETIRE	_BITUL(0)
 #define OBMM_ASYNC_LOAD_START_KERNEL_TASK	_BITUL(1)
 
@@ -150,6 +152,7 @@ struct obmm_async_load_event_v3 {
 	__u64 sequence;
 	__u64 owner_generation;
 	__u64 context_id;
+	/* ABI v3 field name; carries the generic wait_key for Cacheable fills. */
 	__u64 plt_token;
 	__u64 interrupted_pc;
 	__u64 fault_pc;
@@ -230,6 +233,15 @@ struct obmm_async_load_kernel_task_stats_v1 {
 	__u64 interrupted_waits;
 };
 
+struct obmm_async_load_path_stats_v1 {
+	__u64 nc_plt_allocations;
+	__u64 nc_plt_pending_current;
+	__u64 cacheable_fill_pending;
+	__u64 cacheable_fill_completed;
+	__u64 cacheable_replay_hits;
+	__u64 cacheable_fill_bytes;
+};
+
 #define OBMM_ASYNC_LOAD_IOCTL_MAGIC 0xb8
 #define OBMM_ASYNC_LOAD_IOCTL_QUERY_CAPS \
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v4)
@@ -249,5 +261,8 @@ struct obmm_async_load_kernel_task_stats_v1 {
 #define OBMM_ASYNC_LOAD_IOCTL_GET_KERNEL_TASK_STATS \
 	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x10, \
 	     struct obmm_async_load_kernel_task_stats_v1)
+#define OBMM_ASYNC_LOAD_IOCTL_GET_PATH_STATS \
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x11, \
+	     struct obmm_async_load_path_stats_v1)
 
 #endif
