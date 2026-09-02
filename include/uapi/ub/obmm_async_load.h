@@ -6,7 +6,8 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#define OBMM_ASYNC_LOAD_ABI_VERSION 3
+#define OBMM_ASYNC_LOAD_ABI_VERSION 4
+#define OBMM_ASYNC_LOAD_EVENT_ABI_VERSION 3
 #define OBMM_ASYNC_LOAD_MAX_CONTEXTS 64
 #define OBMM_ASYNC_LOAD_MAX_PENDING_LOADS 64
 #define OBMM_ASYNC_LOAD_MAX_EVENTS 128
@@ -14,9 +15,8 @@
 #define OBMM_ASYNC_LOAD_EVENT_PRODUCER_HEADER_BYTES 64
 #define OBMM_ASYNC_LOAD_EVENT_SLOT_BYTES 128
 #define OBMM_ASYNC_LOAD_EVENT_CONSUMER_BYTES 64
-#define OBMM_ASYNC_LOAD_RESUME_HLT_IMM 0x5343
-#define OBMM_ASYNC_LOAD_WAIT_HLT_IMM 0x5344
-#define OBMM_ASYNC_LOAD_SCHEDULER_ENTER_HLT_IMM 0x5345
+#define OBMM_ASYNC_LOAD_RESUME_SVC_IMM 0x5343
+#define OBMM_ASYNC_LOAD_SCHEDULER_ENTER_SVC_IMM 0x5345
 
 #define OBMM_ASYNC_LOAD_CAP_SCALAR_1		_BITULL(0)
 #define OBMM_ASYNC_LOAD_CAP_SCALAR_2		_BITULL(1)
@@ -31,6 +31,9 @@
 #define OBMM_ASYNC_LOAD_CAP_EL0_WAIT_WAKE	_BITULL(10)
 #define OBMM_ASYNC_LOAD_CAP_EL0_SCHEDULER_ENTER _BITULL(11)
 #define OBMM_ASYNC_LOAD_CAP_KERNEL_TASK_REPLAY	_BITULL(12)
+#define OBMM_ASYNC_LOAD_CAP_NC_REPLAY_TOKEN	_BITULL(13)
+#define OBMM_ASYNC_LOAD_CAP_SVC_CONTEXT_RESUME	_BITULL(14)
+#define OBMM_ASYNC_LOAD_CAP_WFE_WAIT		_BITULL(15)
 
 #define OBMM_ASYNC_LOAD_MAP_LOGICAL_MIXED	_BITUL(0)
 #define OBMM_ASYNC_LOAD_EVENT_RETIRE_REPLAY	_BITUL(1)
@@ -55,9 +58,9 @@ enum obmm_async_load_status {
 };
 
 /*
- * Exact state image consumed by the simulated HLT #0x5343 resume primitive.
- * The guest EL0 scheduler owns these images. QEMU only installs the selected
- * image atomically; it neither stores nor chooses coroutine contexts.
+ * Exact state image consumed by the private SVC resume fast path. The guest
+ * EL0 scheduler owns these images. The driver installs GPR/SP/PC/NZCV through
+ * pt_regs; EL0 restores SIMD/FP/TPIDR state immediately before SVC.
  */
 struct obmm_async_load_context_v2 {
 	__u64 context_id;
@@ -73,7 +76,7 @@ struct obmm_async_load_context_v2 {
 	__u64 reserved;
 };
 
-struct obmm_async_load_caps_v3 {
+struct obmm_async_load_caps_v4 {
 	__u32 abi_version;
 	__u16 context_entries;
 	__u16 pending_load_entries;
@@ -83,9 +86,9 @@ struct obmm_async_load_caps_v3 {
 	__u64 capabilities;
 	__u64 owner_generation;
 	__u32 clock_mhz;
-	__u32 resume_hlt_imm;
-	__u32 wait_hlt_imm;
-	__u32 scheduler_enter_hlt_imm;
+	__u32 resume_svc_imm;
+	__u32 scheduler_enter_svc_imm;
+	__u32 reserved1;
 	__u32 event_slot_bytes;
 	__u32 event_producer_header_bytes;
 	__u64 event_ring_mmap_offset;
@@ -229,7 +232,7 @@ struct obmm_async_load_kernel_task_stats_v1 {
 
 #define OBMM_ASYNC_LOAD_IOCTL_MAGIC 0xb8
 #define OBMM_ASYNC_LOAD_IOCTL_QUERY_CAPS \
-	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v3)
+	_IOR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x00, struct obmm_async_load_caps_v4)
 #define OBMM_ASYNC_LOAD_IOCTL_REGISTER_MAP \
 	_IOWR(OBMM_ASYNC_LOAD_IOCTL_MAGIC, 0x01, struct obmm_async_load_map_register_v1)
 #define OBMM_ASYNC_LOAD_IOCTL_UNREGISTER_MAP \

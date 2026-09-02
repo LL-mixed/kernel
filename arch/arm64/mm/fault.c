@@ -91,7 +91,7 @@ int arm64_register_remote_load_fault_handler(
 {
 	int ret = 0;
 
-	if (!ops || !ops->handle || !ops->owner)
+	if (!ops || (!ops->handle && !ops->handle_svc) || !ops->owner)
 		return -EINVAL;
 
 	mutex_lock(&remote_load_fault_lock);
@@ -114,6 +114,24 @@ void arm64_unregister_remote_load_fault_handler(
 }
 EXPORT_SYMBOL_GPL(arm64_unregister_remote_load_fault_handler);
 
+int arm64_handle_remote_load_svc(unsigned int imm, struct pt_regs *regs)
+{
+	const struct arm64_remote_load_fault_ops *ops;
+	int ret;
+
+	mutex_lock(&remote_load_fault_lock);
+	ops = remote_load_fault_ops;
+	if (!ops || !ops->handle_svc || !try_module_get(ops->owner))
+		ops = NULL;
+	mutex_unlock(&remote_load_fault_lock);
+	if (!ops)
+		return -ENOENT;
+
+	ret = ops->handle_svc(imm, regs);
+	module_put(ops->owner);
+	return ret;
+}
+
 static int do_remote_load_fault(unsigned long far, unsigned long esr,
 				struct pt_regs *regs)
 {
@@ -125,7 +143,7 @@ static int do_remote_load_fault(unsigned long far, unsigned long esr,
 
 	mutex_lock(&remote_load_fault_lock);
 	ops = remote_load_fault_ops;
-	if (!ops || !try_module_get(ops->owner))
+	if (!ops || !ops->handle || !try_module_get(ops->owner))
 		ops = NULL;
 	mutex_unlock(&remote_load_fault_lock);
 	if (!ops)

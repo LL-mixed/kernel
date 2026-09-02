@@ -6,12 +6,15 @@
 #include <linux/nospec.h>
 #include <linux/ptrace.h>
 #include <linux/randomize_kstack.h>
+#include <linux/arm64_remote_load.h>
 #include <linux/syscalls.h>
 
 #include <asm/debug-monitors.h>
 #include <asm/exception.h>
+#include <asm/esr.h>
 #include <asm/fpsimd.h>
 #include <asm/syscall.h>
+#include <asm/sysreg.h>
 #include <asm/thread_info.h>
 #include <asm/unistd.h>
 #include <asm/xcall.h>
@@ -175,6 +178,18 @@ void do_el0_xcall(struct pt_regs *regs)
 void do_el0_svc(struct pt_regs *regs)
 {
 	const syscall_fn_t *t = sys_call_table;
+	unsigned int imm = read_sysreg(esr_el1) & ESR_ELx_ISS_MASK;
+	int remote_load_ret;
+
+	/* Linux userspace system calls use SVC #0. */
+	if (imm) {
+		remote_load_ret = arm64_handle_remote_load_svc(imm, regs);
+		if (remote_load_ret != -ENOENT) {
+			if (remote_load_ret)
+				regs->regs[0] = remote_load_ret;
+			return;
+		}
+	}
 
 #ifdef CONFIG_ARM64_ILP32
 	if (is_ilp32_compat_task()) {

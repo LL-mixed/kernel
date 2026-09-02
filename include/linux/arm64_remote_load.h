@@ -13,6 +13,7 @@ struct pt_regs;
 struct arm64_remote_load_fault_ops {
 	int (*handle)(unsigned long far, unsigned long esr,
 		      struct pt_regs *regs);
+	int (*handle_svc)(unsigned int imm, struct pt_regs *regs);
 	struct module *owner;
 };
 
@@ -20,5 +21,6 @@ int arm64_register_remote_load_fault_handler(
 	const struct arm64_remote_load_fault_ops *ops);
 void arm64_unregister_remote_load_fault_handler(
 	const struct arm64_remote_load_fault_ops *ops);
+int arm64_handle_remote_load_svc(unsigned int imm, struct pt_regs *regs);
 
 #endif /* _LINUX_ARM64_REMOTE_LOAD_H */
