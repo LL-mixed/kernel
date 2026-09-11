@@ -12,6 +12,8 @@
 #define OBMM_SIM_DEC_PRIV_VER_1 1
 #define OBMM_SIM_DEC_PRIV_VER_2 2
 #define OBMM_SIM_DEC_PRIV_VER_3 3
+#define OBMM_SIM_DEC_PRIV_VER_4 4
+#define OBMM_SIM_DEC_IMPORT_FLAG_V4 0x8UL
 
 /* map_source values for GVA metadata */
 #define OBMM_SIM_DEC_MAP_SOURCE_LEGACY_OBMM 1
@@ -64,6 +66,14 @@ struct obmm_sim_dec_import_priv_v1 {
 	u32 flags;
 };
 
+/* GSVA lease and physical export use independent token namespaces.
+ * The import command's tokenid identifies the physical export. */
+struct obmm_sim_dec_import_priv_v4 {
+	struct obmm_sim_dec_import_priv_v2 gsva;
+	u32 gsva_token_id;
+	u32 reserved;
+};
+
 struct obmm_sim_dec_import_priv_v3 {
 	u32 magic;
 	u16 version;
@@ -83,6 +93,7 @@ struct obmm_sim_dec_import_info {
 	u64 remote_export_generation;
 	u32 token_id;
 	u32 token_value;
+	u32 gsva_token_id;
 	u32 scna;
 	u32 dcna;
 	u8 seid[16];
@@ -110,6 +121,7 @@ struct obmm_sim_dec_unimport_info {
 	u64 map_id;
 	u32 scna;
 	bool is_gsva;
+	bool managed_view;
 };
 
 struct obmm_sim_dec_export_retire_info {

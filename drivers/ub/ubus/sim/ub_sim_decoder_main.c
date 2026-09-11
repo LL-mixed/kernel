@@ -74,17 +74,30 @@ static int ub_sim_decoder_obmm_import(void *import_info)
 		gsva_req.scna = info->scna;
 		gsva_req.dcna = info->dcna;
 
-		ret = ub_sim_dec_backend_gsva_map_v1(g_decoder, &gsva_req, &gsva_resp);
+		if (info->gsva_token_id) {
+			struct sim_dec_gsva_map_v2_req v2;
+
+			/* V2 makes the old request's tail padding reserved-zero. */
+			memset(&v2, 0, sizeof(v2));
+			memcpy(&v2.gsva, &gsva_req,
+			       offsetof(struct sim_dec_gsva_map_req, dcna) + sizeof(gsva_req.dcna));
+			v2.gsva.version = 2;
+			v2.gsva.token_id = info->gsva_token_id;
+			v2.export_token_id = info->token_id;
+			ret = ub_sim_dec_backend_gsva_map_v2(g_decoder, &v2, &gsva_resp);
+		} else {
+			ret = ub_sim_dec_backend_gsva_map_v1(g_decoder, &gsva_req, &gsva_resp);
+		}
 		if (ret) {
-			pr_err("UB SIM Decoder: GSVA V1 map failed: %pe\n",
-			       ERR_PTR(ret));
+			pr_err("UB SIM Decoder: GSVA V%u map failed: %pe\n",
+			       info->gsva_token_id ? 2 : 1, ERR_PTR(ret));
 			return ret;
 		}
 
 		map_id = gsva_resp.map_id;
 		info->map_id = map_id;
-		pr_info("UB SIM Decoder: OBMM import GSVA V1 mapped map_id=%#llx\n",
-			map_id);
+		pr_info("UB SIM Decoder: OBMM import GSVA V%u mapped map_id=%#llx\n",
+			info->gsva_token_id ? 2 : 1, map_id);
 		return 0;
 	}
 
@@ -144,15 +157,18 @@ static int ub_sim_decoder_obmm_unimport(void *unimport_info)
 		return -EINVAL;
 
 	if (info->is_gsva) {
-		gsva_req.version = 1;
+		gsva_req.version = info->managed_view ? 2 : 1;
 		gsva_req.map_id = info->map_id;
 		ret = ub_sim_dec_backend_gsva_unmap_v1(g_decoder, info->scna,
 						       &gsva_req, &gsva_resp);
-		if (ret == 0 || gsva_resp.error == GSVA_ERR_ROUTE_MISSING) {
-			pr_info("UB SIM Decoder: OBMM unimport GSVA V1 unmapped map_id=%#llx\n",
-				info->map_id);
+		if (ret == 0 && (gsva_resp.error == GSVA_OK ||
+				gsva_resp.error == GSVA_ERR_ROUTE_MISSING)) {
+			pr_info("UB SIM Decoder: OBMM unimport GSVA V%u unmapped map_id=%#llx\n",
+				gsva_req.version, info->map_id);
 			return 0;
 		}
+		/* An uncertain GSVA release must never target a legacy map ID. */
+		return ret ? ret : -EIO;
 	}
 
 	ret = ub_sim_decoder_unmap(&g_decoder->service, info->map_id);

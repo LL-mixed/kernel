@@ -427,6 +427,24 @@ int ub_sim_dec_backend_gsva_map_v1(struct ub_sim_decoder *dec,
 }
 EXPORT_SYMBOL_GPL(ub_sim_dec_backend_gsva_map_v1);
 
+int ub_sim_dec_backend_gsva_map_v2(struct ub_sim_decoder *dec,
+				    struct sim_dec_gsva_map_v2_req *req,
+				    struct sim_dec_gsva_map_resp *resp)
+{
+	BUILD_BUG_ON(sizeof(struct sim_dec_gsva_map_req) != 144);
+	BUILD_BUG_ON(offsetof(struct sim_dec_gsva_map_v2_req, export_token_id) != 144);
+	BUILD_BUG_ON(sizeof(struct sim_dec_gsva_map_v2_req) != 152);
+	if (!dec || !req || !resp || req->gsva.version != 2 ||
+	    !req->export_token_id || req->reserved)
+		return -EINVAL;
+	if (dec->backend_type != UB_SIM_DEC_BACKEND_SIM)
+		return -ENOTSUPP;
+	return ub_sim_dec_send_cmd(&dec->adapter, req->gsva.scna,
+				  SIM_DEC_OP_GSVA_MAP_V2, req, sizeof(*req),
+				  resp, sizeof(*resp));
+}
+EXPORT_SYMBOL_GPL(ub_sim_dec_backend_gsva_map_v2);
+
 int ub_sim_dec_backend_gsva_unmap_v1(struct ub_sim_decoder *dec,
 				      u32 scna,
 				      struct sim_dec_gsva_unmap_req *req,

@@ -188,6 +188,7 @@ struct obmm_import_region {
 	u8 seid[16];
 
 	bool sim_dec_mapped;
+	bool sim_dec_managed_view;
 	u64 sim_dec_map_id;
 	u32 sim_dec_cache_policy;
 };

@@ -34,6 +34,7 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_GSVA_QUERY_V1 = 0x0c,
 	SIM_DEC_OP_OBMM_EXPORT_RETIRE = 0x0d,
 	SIM_DEC_OP_OBMM_MAP_V2 = 0x0e,
+	SIM_DEC_OP_GSVA_MAP_V2 = 0x0f,
 };
 
 /* Control command status */
@@ -267,6 +268,12 @@ struct sim_dec_gsva_map_resp {
 	__u32	rsvd;
 };
 
+struct sim_dec_gsva_map_v2_req {
+	struct sim_dec_gsva_map_req gsva;
+	__u32 export_token_id;
+	__u32 reserved;
+};
+
 struct sim_dec_gsva_unmap_req {
 	__u32	version;
 	__u32	flags;
@@ -383,6 +390,9 @@ int ub_sim_dec_backend_obmm_export_retire(struct ub_sim_decoder *dec,
 /* GSVA V1 Backend API */
 int ub_sim_dec_backend_gsva_map_v1(struct ub_sim_decoder *dec,
 				    struct sim_dec_gsva_map_req *req,
+				    struct sim_dec_gsva_map_resp *resp);
+int ub_sim_dec_backend_gsva_map_v2(struct ub_sim_decoder *dec,
+				    struct sim_dec_gsva_map_v2_req *req,
 				    struct sim_dec_gsva_map_resp *resp);
 int ub_sim_dec_backend_gsva_unmap_v1(struct ub_sim_decoder *dec,
 				      u32 scna,
