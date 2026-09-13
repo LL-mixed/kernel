@@ -212,13 +212,20 @@ static void free_export_memory(struct obmm_export_region *e_reg)
 }
 
 /* Ensure all user inputs are properly converted and filled into the region. */
-int obmm_export_common(struct obmm_export_region *e_reg)
+int obmm_export_common_checked(struct obmm_export_region *e_reg, bool *no_backing)
 {
 	int ret;
 
+	if (no_backing)
+		*no_backing = false;
 	ret = alloc_export_memory(e_reg);
-	if (ret)
+	if (ret) {
+		/* Pool allocation returns its partial pages before failing. No
+		 * device mappings or export registration have been attempted. */
+		if (no_backing && !region_memory_from_user(&e_reg->region))
+			*no_backing = true;
 		return ret;
+	}
 
 	ret = setup_ummu(e_reg);
 	if (ret)
@@ -236,6 +243,11 @@ free_memory:
 	free_export_memory(e_reg);
 
 	return ret;
+}
+
+int obmm_export_common(struct obmm_export_region *e_reg)
+{
+	return obmm_export_common_checked(e_reg, NULL);
 }
 
 int obmm_unexport_common(struct obmm_export_region *e_reg)
@@ -298,6 +310,8 @@ int obmm_unexport(const struct obmm_cmd_unexport *cmd_unexport)
 
 	deregister_obmm_region(reg);
 	uninit_obmm_region(reg);
+	if (e_reg->gsva_fixed_uba)
+		obmm_gsva_export_released(e_reg->requested_uba, cmd_unexport->mem_id);
 	free_export_region(e_reg);
 
 	pr_debug("%s: mem_id=%llu completed.\n", __func__, cmd_unexport->mem_id);

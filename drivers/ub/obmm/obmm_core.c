@@ -45,7 +45,8 @@
 size_t __obmm_memseg_size;
 static DEFINE_MUTEX(obmm_gsva_aperture_lock);
 static struct obmm_cmd_gsva_aperture obmm_gsva_aperture;
-/* All mutations hold aperture_lock, then segment_lock when needed. */
+/* Address/descriptor mutations hold aperture_lock, then segment_lock.
+ * Export pins and bindings hold segment_lock only, never across device I/O. */
 static struct resource obmm_gsva_address_space = {
 	.name = "GSVA aperture",
 	.flags = IORESOURCE_MEM,
@@ -184,6 +185,8 @@ static int obmm_gsva_aperture_clear(const struct obmm_cmd_gsva_aperture *cmd)
 /* GSVA segment tracking */
 struct obmm_gsva_segment {
 	struct obmm_gsva_segment_desc_v1 desc;
+	bool export_busy;
+	u64 managed_export_id;
 	struct resource address;
 	struct list_head node;
 };
@@ -354,6 +357,74 @@ static int obmm_gsva_query_segment(struct obmm_cmd_gsva_query_segment_v1 *cmd)
 	return 0;
 }
 
+static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
+{
+	struct obmm_cmd_export request = {};
+	struct obmm_gsva_segment *seg;
+	bool no_backing = false;
+	int ret;
+
+	if (cmd->version != OBMM_GSVA_ABI_VERSION || cmd->reserved ||
+	    (cmd->flags & ~OBMM_GSVA_EXPORT_F_FAST))
+		return -EINVAL;
+	cmd->outcome = OBMM_GSVA_EXPORT_UNKNOWN;
+	cmd->error = 0;
+	cmd->export_mem_id = 0;
+	cmd->export_token_id = 0;
+	cmd->export_uba = 0;
+	cmd->export_size = 0;
+	mutex_lock(&obmm_gsva_segment_lock);
+	seg = obmm_gsva_find_segment_by_id(cmd->segment.segment_id);
+	if (!seg || !(seg->desc.flags & OBMM_GSVA_SEG_F_ACTIVE) ||
+	    (seg->desc.flags & OBMM_GSVA_SEG_F_RETIRED) ||
+	    memcmp(&seg->desc, &cmd->segment, sizeof(seg->desc))) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -ESTALE;
+	}
+	if (seg->export_busy || seg->managed_export_id) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -EBUSY;
+	}
+	/* The pin blocks retire without holding a lock across pool/device I/O. */
+	seg->export_busy = true;
+	mutex_unlock(&obmm_gsva_segment_lock);
+	request.length = 1;
+	request.size[0] = cmd->segment.size;
+	request.uba = cmd->segment.home_va;
+	request.flags = OBMM_EXPORT_FLAG_ALLOW_MMAP | OBMM_EXPORT_FLAG_GSVA_FIXED_UBA;
+	if (cmd->flags & OBMM_GSVA_EXPORT_F_FAST)
+		request.flags |= OBMM_EXPORT_FLAG_FAST;
+	ret = obmm_export_from_pool_checked(&request, &no_backing);
+	mutex_lock(&obmm_gsva_segment_lock);
+	cmd->error = ret < 0 ? -ret : 0;
+	if (!ret) {
+		seg->managed_export_id = request.mem_id;
+		seg->export_busy = false;
+		cmd->outcome = OBMM_GSVA_EXPORT_CREATED;
+		cmd->export_mem_id = request.mem_id;
+		cmd->export_token_id = request.tokenid;
+		cmd->export_uba = request.uba;
+		cmd->export_size = request.size[0];
+	} else if (no_backing) {
+		seg->export_busy = false;
+		cmd->outcome = OBMM_GSVA_EXPORT_NO_BACKING;
+	}
+	/* Uncertain failures retain the pin; they cannot authorize address reuse. */
+	mutex_unlock(&obmm_gsva_segment_lock);
+	return 0;
+}
+
+void obmm_gsva_export_released(u64 address, u64 mem_id)
+{
+	struct obmm_gsva_segment *seg;
+
+	mutex_lock(&obmm_gsva_segment_lock);
+	seg = obmm_gsva_find_segment_by_va(address);
+	if (seg && seg->managed_export_id == mem_id)
+		seg->managed_export_id = 0;
+	mutex_unlock(&obmm_gsva_segment_lock);
+}
+
 static int obmm_gsva_retire_segment(struct obmm_cmd_gsva_retire_segment_v1 *cmd)
 {
 	struct obmm_gsva_segment *seg;
@@ -382,6 +453,12 @@ static int obmm_gsva_retire_segment(struct obmm_cmd_gsva_retire_segment_v1 *cmd)
 		mutex_unlock(&obmm_gsva_aperture_lock);
 		cmd->status = OBMM_GSVA_RETIRE_ABORTED;
 		return -EALREADY;
+	}
+	if (seg->export_busy || seg->managed_export_id) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		mutex_unlock(&obmm_gsva_aperture_lock);
+		cmd->status = OBMM_GSVA_RETIRE_ABORTED;
+		return -EBUSY;
 	}
 
 	ret = release_resource(&seg->address);
@@ -857,9 +934,21 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_gsva_query_segment_v1 gsva_query_seg;
 		struct obmm_cmd_gsva_retire_segment_v1 gsva_retire_seg;
 		struct obmm_cmd_gsva_event_v1 gsva_event;
+		struct obmm_cmd_gsva_export_segment_v1 gsva_export;
 	} cmd_param;
 
 	switch (cmd) {
+	case OBMM_CMD_GSVA_EXPORT_SEGMENT:
+		if (copy_from_user(&cmd_param.gsva_export, (void __user *)arg,
+				   sizeof(cmd_param.gsva_export)))
+			return -EFAULT;
+		ret = obmm_gsva_export_segment(&cmd_param.gsva_export);
+		if (ret)
+			return ret;
+		if (copy_to_user((void __user *)arg, &cmd_param.gsva_export,
+				 sizeof(cmd_param.gsva_export)))
+			return -EFAULT;
+		break;
 	case OBMM_CMD_EXPORT: {
 		ret = (int)copy_from_user(&cmd_param.create, (void __user *)arg,
 					  sizeof(struct obmm_cmd_export));

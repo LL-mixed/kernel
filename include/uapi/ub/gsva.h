@@ -130,6 +130,25 @@ struct obmm_gsva_segment_desc_v1 {
 	__u32	token_value;
 };
 
+/* Managed export v1: ioctl failure means the result is unknown. */
+#define OBMM_GSVA_EXPORT_UNKNOWN 0U
+#define OBMM_GSVA_EXPORT_CREATED 1U
+#define OBMM_GSVA_EXPORT_NO_BACKING 2U
+#define OBMM_GSVA_EXPORT_F_FAST (1U << 0)
+
+struct obmm_cmd_gsva_export_segment_v1 {
+	__u32 version;
+	__u32 flags;
+	struct obmm_gsva_segment_desc_v1 segment;
+	__u32 outcome;
+	__s32 error;
+	__u64 export_mem_id;
+	__u32 export_token_id;
+	__u32 reserved;
+	__u64 export_uba;
+	__u64 export_size;
+};
+
 /* GSVA segment allocation command */
 struct obmm_cmd_gsva_alloc_segment_v1 {
 	__u32	version;

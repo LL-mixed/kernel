@@ -7,6 +7,7 @@
 #ifndef OBMM_EXPORT_C_H
 #define OBMM_EXPORT_C_H
 int obmm_export_common(struct obmm_export_region *e_reg);
+int obmm_export_common_checked(struct obmm_export_region *e_reg, bool *no_backing);
 
 int export_flags_to_region_flags(unsigned long *region_flags, unsigned long user_flags);
 
@@ -15,6 +16,8 @@ void free_export_memory_pid(struct obmm_export_region *e_reg);
 int alloc_export_memory_pool(struct obmm_export_region *e_reg);
 int obmm_unexport_common(struct obmm_export_region *e_reg);
 int obmm_export_from_pool(struct obmm_cmd_export *cmd_export);
+int obmm_export_from_pool_checked(struct obmm_cmd_export *cmd_export, bool *no_backing);
+void obmm_gsva_export_released(u64 address, u64 mem_id);
 int obmm_export_pid(struct obmm_cmd_export_pid *export_pid);
 int obmm_unexport(const struct obmm_cmd_unexport *cmd_unexport);
 

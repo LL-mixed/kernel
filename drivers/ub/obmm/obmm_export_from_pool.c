@@ -321,13 +321,15 @@ static void print_export_param(const struct obmm_cmd_export *cmd_export)
  * physically located on this host and can be accessed from remote host.
  * In OBMM's terminology, it is an export region.
  */
-int obmm_export_from_pool(struct obmm_cmd_export *cmd_export)
+int obmm_export_from_pool_checked(struct obmm_cmd_export *cmd_export, bool *no_backing)
 {
 	struct obmm_export_region *e_reg;
 	uint64_t uba, mem_id;
 	uint32_t token_id;
 	int ret;
 
+	if (no_backing)
+		*no_backing = false;
 	print_export_param(cmd_export);
 	e_reg = alloc_region_from_cmd(cmd_export);
 	if (IS_ERR(e_reg))
@@ -337,7 +339,7 @@ int obmm_export_from_pool(struct obmm_cmd_export *cmd_export)
 	if (ret)
 		goto out_free_reg;
 
-	ret = obmm_export_common(e_reg);
+	ret = obmm_export_common_checked(e_reg, no_backing);
 	if (ret)
 		goto out_unit_reg;
 
@@ -364,4 +366,9 @@ out_unit_reg:
 out_free_reg:
 	free_export_region(e_reg);
 	return ret;
+}
+
+int obmm_export_from_pool(struct obmm_cmd_export *cmd_export)
+{
+	return obmm_export_from_pool_checked(cmd_export, NULL);
 }
