@@ -104,6 +104,11 @@ struct obmm_async_map_register_v2 {
 	__u64 local_pa;
 };
 
+/* V2 opt-in: bind PTO to a strict mapped view and its actual VMA rights.
+ * Old drivers reject the flag; callers must not retry without it.
+ */
+#define OBMM_ASYNC_MAP_STRICT_PTO (1U << 0)
+
 struct obmm_async_map_unregister_v1 {
 	__u64 map_id;
 	__u64 map_generation;
