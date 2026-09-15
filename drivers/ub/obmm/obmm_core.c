@@ -21,6 +21,7 @@
 #include <linux/acpi.h>
 #include <linux/overflow.h>
 #include <linux/ioport.h>
+#include <linux/random.h>
 
 #include <ub/ubus/ub-mem-decoder.h>
 #include <ub/ubus/ubus.h>
@@ -188,12 +189,22 @@ struct obmm_gsva_segment {
 	bool export_busy;
 	u64 managed_export_id;
 	u32 managed_export_token;
+	u64 aperture_generation;
 	struct resource address;
 	struct list_head node;
 };
 static DEFINE_MUTEX(obmm_gsva_segment_lock);
 static LIST_HEAD(obmm_gsva_segments);
 static u64 obmm_gsva_segment_counter;
+static u64 obmm_gsva_revision = 1;
+static u8 obmm_gsva_kernel_instance[16];
+
+/* segment_lock held; overflow permanently disables snapshot enumeration. */
+static void obmm_gsva_changed(void)
+{
+	if (obmm_gsva_revision)
+		obmm_gsva_revision++;
+}
 
 static u32 obmm_gsva_next_token_id(void)
 {
@@ -317,8 +328,10 @@ static int obmm_gsva_alloc_segment(struct obmm_cmd_gsva_alloc_segment_v1 *cmd)
 	seg->desc.access_flags = cmd->access_flags;
 	seg->desc.token_id = obmm_gsva_next_token_id();
 	seg->desc.token_value = obmm_gsva_next_token_value();
+	seg->aperture_generation = obmm_gsva_aperture.generation;
 
 	list_add_tail(&seg->node, &obmm_gsva_segments);
+	obmm_gsva_changed();
 	cmd->desc = seg->desc;
 	mutex_unlock(&obmm_gsva_segment_lock);
 	mutex_unlock(&obmm_gsva_aperture_lock);
@@ -356,6 +369,66 @@ static int obmm_gsva_query_segment(struct obmm_cmd_gsva_query_segment_v1 *cmd)
 	cmd->desc = seg->desc;
 	mutex_unlock(&obmm_gsva_segment_lock);
 	return 0;
+}
+
+static int obmm_gsva_enumerate(struct obmm_cmd_gsva_enumerate_v1 *cmd)
+{
+	struct obmm_cmd_gsva_enumerate_v1 result = {};
+	struct obmm_gsva_segment *seg;
+	const u8 empty_instance[16] = {};
+	int ret = 0;
+
+	if (cmd->version != OBMM_GSVA_ABI_VERSION || cmd->flags ||
+	    cmd->reserved || cmd->reserved2 ||
+	    (!cmd->revision && (cmd->cursor ||
+	     memcmp(cmd->kernel_instance, empty_instance, sizeof(empty_instance)))))
+		return -EINVAL;
+	mutex_lock(&obmm_gsva_segment_lock);
+	if (!obmm_gsva_revision) {
+		ret = -EOVERFLOW;
+		goto out;
+	}
+	if (!obmm_gsva_kernel_instance[0]) {
+		get_random_bytes(obmm_gsva_kernel_instance, sizeof(obmm_gsva_kernel_instance));
+		obmm_gsva_kernel_instance[0] |= 1;
+	}
+	if (cmd->revision && (cmd->revision != obmm_gsva_revision ||
+	    memcmp(cmd->kernel_instance, obmm_gsva_kernel_instance,
+		   sizeof(obmm_gsva_kernel_instance)))) {
+		ret = -ESTALE;
+		goto out;
+	}
+	if (cmd->cursor > obmm_gsva_segment_counter) {
+		ret = -EINVAL;
+		goto out;
+	}
+	result.version = OBMM_GSVA_ABI_VERSION;
+	result.revision = obmm_gsva_revision;
+	result.cursor = cmd->cursor;
+	memcpy(result.kernel_instance, obmm_gsva_kernel_instance,
+	       sizeof(result.kernel_instance));
+	result.flags = OBMM_GSVA_ENUM_END;
+	list_for_each_entry(seg, &obmm_gsva_segments, node) {
+		u64 ordinal = seg->desc.segment_id & ((1ULL << 48) - 1);
+
+		if (ordinal <= cmd->cursor)
+			continue;
+		result.flags = OBMM_GSVA_ENUM_ENTRY;
+		result.cursor = ordinal;
+		result.desc = seg->desc;
+		result.aperture_generation = seg->aperture_generation;
+		if (seg->address.parent)
+			result.resource_flags |= OBMM_GSVA_RESOURCE_ADDRESS_RESERVED;
+		if (seg->export_busy)
+			result.resource_flags |= OBMM_GSVA_RESOURCE_EXPORT_BUSY;
+		result.export_mem_id = seg->managed_export_id;
+		result.export_token_id = seg->managed_export_token;
+		break;
+	}
+	*cmd = result;
+out:
+	mutex_unlock(&obmm_gsva_segment_lock);
+	return ret;
 }
 
 static int obmm_gsva_home_update(const struct obmm_gsva_segment_desc_v1 *desc,
@@ -414,6 +487,7 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 	}
 	/* The pin blocks retire without holding a lock across pool/device I/O. */
 	seg->export_busy = true;
+	obmm_gsva_changed();
 	mutex_unlock(&obmm_gsva_segment_lock);
 	request.length = 1;
 	request.size[0] = cmd->segment.size;
@@ -428,6 +502,7 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 		mutex_lock(&obmm_gsva_segment_lock);
 		seg->managed_export_id = request.mem_id;
 		seg->managed_export_token = request.tokenid;
+		obmm_gsva_changed();
 		mutex_unlock(&obmm_gsva_segment_lock);
 		cmd->export_mem_id = request.mem_id;
 		cmd->export_token_id = request.tokenid;
@@ -449,6 +524,7 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 		cmd->outcome = OBMM_GSVA_EXPORT_NO_BACKING;
 	}
 	/* Uncertain failures retain the pin; they cannot authorize address reuse. */
+	obmm_gsva_changed();
 	mutex_unlock(&obmm_gsva_segment_lock);
 	return 0;
 }
@@ -476,11 +552,13 @@ int obmm_gsva_export_revoke(u64 address, u64 mem_id)
 	}
 	seg->export_busy = true;
 	desc = seg->desc;
+	obmm_gsva_changed();
 	token = seg->managed_export_token;
 	mutex_unlock(&obmm_gsva_segment_lock);
 	ret = obmm_gsva_home_update(&desc, mem_id, token, SIM_DEC_GSVA_HOME_REVOKE);
 	mutex_lock(&obmm_gsva_segment_lock);
 	seg->export_busy = false;
+	obmm_gsva_changed();
 	mutex_unlock(&obmm_gsva_segment_lock);
 	return ret;
 }
@@ -494,6 +572,7 @@ void obmm_gsva_export_released(u64 address, u64 mem_id)
 	if (seg && seg->managed_export_id == mem_id) {
 		seg->managed_export_id = 0;
 		seg->managed_export_token = 0;
+		obmm_gsva_changed();
 	}
 	mutex_unlock(&obmm_gsva_segment_lock);
 }
@@ -542,6 +621,7 @@ static int obmm_gsva_retire_segment(struct obmm_cmd_gsva_retire_segment_v1 *cmd)
 	}
 	seg->desc.flags &= ~OBMM_GSVA_SEG_F_ACTIVE;
 	seg->desc.flags |= OBMM_GSVA_SEG_F_RETIRED;
+	obmm_gsva_changed();
 	cmd->committed_epoch = seg->desc.epoch;
 	cmd->status = OBMM_GSVA_RETIRE_COMMITTED;
 	cmd->error = 0;
@@ -1008,9 +1088,21 @@ static long obmm_dev_ioctl(struct file *file __always_unused, unsigned int cmd, 
 		struct obmm_cmd_gsva_retire_segment_v1 gsva_retire_seg;
 		struct obmm_cmd_gsva_event_v1 gsva_event;
 		struct obmm_cmd_gsva_export_segment_v1 gsva_export;
+		struct obmm_cmd_gsva_enumerate_v1 gsva_enumerate;
 	} cmd_param;
 
 	switch (cmd) {
+	case OBMM_CMD_GSVA_ENUMERATE:
+		if (copy_from_user(&cmd_param.gsva_enumerate, (void __user *)arg,
+				   sizeof(cmd_param.gsva_enumerate)))
+			return -EFAULT;
+		ret = obmm_gsva_enumerate(&cmd_param.gsva_enumerate);
+		if (ret)
+			return ret;
+		if (copy_to_user((void __user *)arg, &cmd_param.gsva_enumerate,
+				 sizeof(cmd_param.gsva_enumerate)))
+			return -EFAULT;
+		break;
 	case OBMM_CMD_GSVA_EXPORT_SEGMENT:
 		if (copy_from_user(&cmd_param.gsva_export, (void __user *)arg,
 				   sizeof(cmd_param.gsva_export)))

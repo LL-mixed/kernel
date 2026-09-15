@@ -176,6 +176,29 @@ struct obmm_cmd_gsva_query_segment_v1 {
 	struct obmm_gsva_segment_desc_v1 desc;
 };
 
+/* Enumeration includes retired records. Start with cursor/revision/instance zero;
+ * continue with returned cursor/revision/instance and flags zero. ESTALE means
+ * discard the whole inventory. This does not attest VMA or device fence state. */
+#define OBMM_GSVA_ENUM_ENTRY (1U << 0)
+#define OBMM_GSVA_ENUM_END (1U << 1)
+#define OBMM_GSVA_RESOURCE_ADDRESS_RESERVED (1U << 0)
+#define OBMM_GSVA_RESOURCE_EXPORT_BUSY (1U << 1)
+
+struct obmm_cmd_gsva_enumerate_v1 {
+	__u32 version;
+	__u32 flags;
+	__u8 kernel_instance[16];
+	__u64 revision;
+	__u64 cursor;
+	__u32 resource_flags;
+	__u32 reserved;
+	__u64 export_mem_id;
+	__u32 export_token_id;
+	__u32 reserved2;
+	__u64 aperture_generation;
+	struct obmm_gsva_segment_desc_v1 desc;
+};
+
 /* GSVA segment retire command */
 struct obmm_cmd_gsva_retire_segment_v1 {
 	__u32	version;
