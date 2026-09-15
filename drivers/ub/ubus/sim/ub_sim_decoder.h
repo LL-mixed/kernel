@@ -35,6 +35,7 @@ enum sim_dec_opcode {
 	SIM_DEC_OP_OBMM_EXPORT_RETIRE = 0x0d,
 	SIM_DEC_OP_OBMM_MAP_V2 = 0x0e,
 	SIM_DEC_OP_GSVA_MAP_V2 = 0x0f,
+	SIM_DEC_OP_GSVA_HOME_V1 = 0x10,
 };
 
 /* Control command status */
@@ -273,6 +274,26 @@ struct sim_dec_gsva_map_v2_req {
 	__u32 export_token_id;
 	__u32 reserved;
 };
+
+/* Local home registration, matching QEMU GsvaHomeRequest (112 bytes). */
+#define SIM_DEC_GSVA_HOME_BIND 1
+#define SIM_DEC_GSVA_HOME_REVOKE 2
+struct sim_dec_gsva_home_req {
+	u32 version;
+	u32 operation;
+	struct sim_dec_gsva_key_v1 key;
+	u32 home_cna;
+	u32 token_id;
+	u32 token_value;
+	u32 backing_token_id;
+	u64 export_mem_id;
+	u32 access_flags;
+	u32 reserved;
+};
+
+struct ub_sim_decoder;
+int ub_sim_dec_backend_gsva_home(struct ub_sim_decoder *dec,
+			       struct sim_dec_gsva_home_req *req);
 
 struct sim_dec_gsva_unmap_req {
 	__u32	version;

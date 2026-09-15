@@ -187,6 +187,7 @@ struct obmm_gsva_segment {
 	struct obmm_gsva_segment_desc_v1 desc;
 	bool export_busy;
 	u64 managed_export_id;
+	u32 managed_export_token;
 	struct resource address;
 	struct list_head node;
 };
@@ -357,6 +358,32 @@ static int obmm_gsva_query_segment(struct obmm_cmd_gsva_query_segment_v1 *cmd)
 	return 0;
 }
 
+static int obmm_gsva_home_update(const struct obmm_gsva_segment_desc_v1 *desc,
+			       u64 mem_id, u32 token, u32 operation)
+{
+	struct sim_dec_gsva_home_req req = {
+		.version = 1,
+		.operation = operation,
+		.key = {
+			.version = 1,
+			.segment_id = desc->segment_id,
+			.home_va = desc->home_va,
+			.size = desc->size,
+			.p_tag = desc->p_tag,
+			.cache_policy = desc->cache_policy,
+			.epoch = desc->epoch,
+		},
+		.home_cna = desc->home_cna,
+		.token_id = desc->token_id,
+		.token_value = desc->token_value,
+		.backing_token_id = token,
+		.export_mem_id = mem_id,
+		.access_flags = desc->access_flags,
+	};
+
+	return ub_sim_dec_backend_gsva_home(g_ub_sim_decoder, &req);
+}
+
 static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 {
 	struct obmm_cmd_export request = {};
@@ -395,16 +422,28 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 	if (cmd->flags & OBMM_GSVA_EXPORT_F_FAST)
 		request.flags |= OBMM_EXPORT_FLAG_FAST;
 	ret = obmm_export_from_pool_checked(&request, &no_backing);
-	mutex_lock(&obmm_gsva_segment_lock);
-	cmd->error = ret < 0 ? -ret : 0;
 	if (!ret) {
+		/* Keep the actual export pinned even if registration acknowledgement
+		 * is lost. Its exact identity can later be revoked before teardown. */
+		mutex_lock(&obmm_gsva_segment_lock);
 		seg->managed_export_id = request.mem_id;
-		seg->export_busy = false;
-		cmd->outcome = OBMM_GSVA_EXPORT_CREATED;
+		seg->managed_export_token = request.tokenid;
+		mutex_unlock(&obmm_gsva_segment_lock);
 		cmd->export_mem_id = request.mem_id;
 		cmd->export_token_id = request.tokenid;
 		cmd->export_uba = request.uba;
 		cmd->export_size = request.size[0];
+		ret = obmm_gsva_home_update(&cmd->segment, request.mem_id,
+					  request.tokenid, SIM_DEC_GSVA_HOME_BIND);
+	}
+	mutex_lock(&obmm_gsva_segment_lock);
+	cmd->error = ret < 0 ? -ret : 0;
+	if (!ret) {
+		seg->export_busy = false;
+		cmd->outcome = OBMM_GSVA_EXPORT_CREATED;
+	} else if (seg->managed_export_id) {
+		/* Revoke may be retried; retire and re-export remain blocked. */
+		seg->export_busy = false;
 	} else if (no_backing) {
 		seg->export_busy = false;
 		cmd->outcome = OBMM_GSVA_EXPORT_NO_BACKING;
@@ -414,14 +453,48 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 	return 0;
 }
 
+int obmm_gsva_export_revoke(u64 address, u64 mem_id)
+{
+	struct obmm_gsva_segment *seg;
+	struct obmm_gsva_segment_desc_v1 desc;
+	u32 token;
+	int ret;
+
+	mutex_lock(&obmm_gsva_segment_lock);
+	seg = obmm_gsva_find_segment_by_va(address);
+	if (seg && seg->export_busy) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -EBUSY;
+	}
+	if (!seg || !seg->managed_export_id) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return 0;
+	}
+	if (seg->managed_export_id != mem_id) {
+		mutex_unlock(&obmm_gsva_segment_lock);
+		return -ESTALE;
+	}
+	seg->export_busy = true;
+	desc = seg->desc;
+	token = seg->managed_export_token;
+	mutex_unlock(&obmm_gsva_segment_lock);
+	ret = obmm_gsva_home_update(&desc, mem_id, token, SIM_DEC_GSVA_HOME_REVOKE);
+	mutex_lock(&obmm_gsva_segment_lock);
+	seg->export_busy = false;
+	mutex_unlock(&obmm_gsva_segment_lock);
+	return ret;
+}
+
 void obmm_gsva_export_released(u64 address, u64 mem_id)
 {
 	struct obmm_gsva_segment *seg;
 
 	mutex_lock(&obmm_gsva_segment_lock);
 	seg = obmm_gsva_find_segment_by_va(address);
-	if (seg && seg->managed_export_id == mem_id)
+	if (seg && seg->managed_export_id == mem_id) {
 		seg->managed_export_id = 0;
+		seg->managed_export_token = 0;
+	}
 	mutex_unlock(&obmm_gsva_segment_lock);
 }
 

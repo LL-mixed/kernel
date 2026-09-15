@@ -291,6 +291,11 @@ int obmm_unexport(const struct obmm_cmd_unexport *cmd_unexport)
 	}
 
 	e_reg = container_of(reg, struct obmm_export_region, region);
+	if (e_reg->gsva_fixed_uba) {
+		ret = obmm_gsva_export_revoke(e_reg->requested_uba, cmd_unexport->mem_id);
+		if (ret)
+			goto err_unexport_common;
+	}
 	if (e_reg->sim_bootstrap_published) {
 		struct obmm_sim_dec_export_retire_info info = {
 			.export_mem_id = cmd_unexport->mem_id,
