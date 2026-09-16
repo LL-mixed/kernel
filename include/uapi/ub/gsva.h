@@ -98,6 +98,7 @@ struct gsva_key_v1 {
 #define OBMM_GSVA_EVENT_RETRY		5
 #define OBMM_GSVA_EVENT_TOKEN_CHANGE	6
 #define OBMM_GSVA_EVENT_FENCE		7
+#define OBMM_GSVA_EVENT_LOCAL_REVOKE	8
 
 /* GSVA segment flags */
 #define OBMM_GSVA_SEG_F_STRICT_ADDRESS_IDENTITY	(1u << 0)
