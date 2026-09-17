@@ -457,6 +457,49 @@ static int obmm_gsva_home_update(const struct obmm_gsva_segment_desc_v1 *desc,
 	return ub_sim_dec_backend_gsva_home(g_ub_sim_decoder, &req);
 }
 
+static int obmm_gsva_publish_route(
+		const struct obmm_gsva_segment_desc_v1 *desc,
+		u64 mem_id, u32 token)
+{
+	struct sim_dec_obmm_bootstrap_record record = {
+		.export_mem_id = mem_id,
+		.remote_uba = desc->home_va,
+		.size = desc->size,
+		.generation = desc->segment_id,
+		.node_id = desc->owner_node_id,
+		.node_count = desc->node_count,
+		.export_cna = desc->home_cna,
+		.token_id = token,
+	};
+	struct obmm_region *region;
+	struct obmm_export_region *export;
+	int ret;
+
+	region = search_get_obmm_region(mem_id);
+	if (!region || region->type != OBMM_EXPORT_REGION) {
+		ret = -ENOENT;
+		goto out;
+	}
+	export = container_of(region, struct obmm_export_region, region);
+	if (!export->gsva_fixed_uba || !export->sgt.sgl ||
+	    export->requested_uba != desc->home_va ||
+	    export->region.mem_size != desc->size ||
+	    export->tokenid != token) {
+		ret = -ESTALE;
+		goto out;
+	}
+	record.backing_uba = sg_phys(export->sgt.sgl);
+	ret = ub_sim_decoder_obmm_bootstrap_publish(desc->home_cna, &record);
+	if (!ret) {
+		export->sim_export_cna = desc->home_cna;
+		export->sim_bootstrap_published = true;
+	}
+out:
+	if (region)
+		put_obmm_region(region);
+	return ret;
+}
+
 static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 {
 	struct obmm_cmd_export request = {};
@@ -510,6 +553,9 @@ static int obmm_gsva_export_segment(struct obmm_cmd_gsva_export_segment_v1 *cmd)
 		cmd->export_size = request.size[0];
 		ret = obmm_gsva_home_update(&cmd->segment, request.mem_id,
 					  request.tokenid, SIM_DEC_GSVA_HOME_BIND);
+		if (!ret)
+			ret = obmm_gsva_publish_route(&cmd->segment, request.mem_id,
+						       request.tokenid);
 	}
 	mutex_lock(&obmm_gsva_segment_lock);
 	cmd->error = ret < 0 ? -ret : 0;
