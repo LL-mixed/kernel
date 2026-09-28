@@ -241,6 +241,9 @@ static int ub_sim_decoder_init(void)
 		       ERR_PTR(ret));
 		goto err_adapter;
 	}
+	ret = ub_sim_pto_queue_register();
+	if (ret < 0)
+		goto err_proc;
 
 	/* Register OBMM callback */
 	ret = obmm_register_import_callback(ub_sim_decoder_obmm_import);
@@ -263,6 +266,8 @@ static int ub_sim_decoder_init(void)
 
 	return 0;
 
+err_proc:
+	ub_sim_decoder_proc_exit();
 err_adapter:
 	ub_sim_dec_ctrl_adapter_exit(&g_decoder->adapter);
 err_service:
@@ -283,6 +288,7 @@ static void ub_sim_decoder_exit(void)
 	obmm_unregister_unimport_callback();
 	obmm_unregister_import_callback();
 
+	ub_sim_pto_queue_unregister();
 	ub_sim_decoder_proc_exit();
 	ub_sim_dec_ctrl_adapter_exit(&g_decoder->adapter);
 	ub_sim_decoder_service_exit(&g_decoder->service);

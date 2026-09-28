@@ -431,4 +431,7 @@ int ub_sim_dec_backend_gsva_event_v1(struct ub_sim_decoder *dec,
 /* Global decoder instance */
 extern struct ub_sim_decoder *g_ub_sim_decoder;
 
+int ub_sim_pto_queue_register(void);
+void ub_sim_pto_queue_unregister(void);
+
 #endif /* __UB_SIM_DECODER_H__ */
